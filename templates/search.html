@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Search{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Search</span>{% endblock %}
+{% block content %}
+{% call m.page_head('Search', 'One search across facilities, bookings (including references like BK-000123), equipment and people.') %}{% endcall %}
+<form class="filters" method="get" role="search">
+  <div class="f-item wide"><label for="sq">Search for</label><input class="form-control" id="sq" name="q" value="{{ q }}" placeholder="e.g. seminar, BK-000021, projector, Kavya" autofocus></div>
+  <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>{{ icon('search', 15) }} Search</button></div>
+</form>
+
+{% if results is none %}
+  <section class="card-ch">{{ m.empty('Type something to search', 'Searches use parameterized LIKE queries, so any text is treated as data.', 'search') }}</section>
+{% else %}
+  {% set total = results.facilities|length + results.bookings|length + results.equipment|length + results.people|length %}
+  {% if total == 0 %}
+  <section class="card-ch">{{ m.empty('No results for “' ~ q ~ '”', 'Try a shorter word or a booking reference.', 'search') }}</section>
+  {% else %}
+  <div class="grid-2">
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('building', 17) }} Facilities <span class="sub">· {{ results.facilities|length }}</span></h3></div>
+      {% if results.facilities %}<table class="table-ch compact"><tbody>{% for f in results.facilities %}
+        <tr data-href="{{ url_for('facility_detail', facility_id=f.facility_id) }}"><td><a class="primary" href="{{ url_for('facility_detail', facility_id=f.facility_id) }}">{{ f.facility_name }}</a><span class="sub">{{ f.type_name }} · {{ f.building }} · {{ f.capacity }} seats</span></td><td class="act">{{ f.status|badge }}</td></tr>
+      {% endfor %}</tbody></table>{% else %}{{ m.empty('No facilities', '', 'building') }}{% endif %}
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('calendar', 17) }} Bookings <span class="sub">· {{ results.bookings|length }}</span></h3></div>
+      {% if results.bookings %}<table class="table-ch compact"><tbody>{% for b in results.bookings %}
+        <tr data-href="{{ url_for('booking_detail', booking_id=b.booking_id) }}"><td><span class="ref">{{ b.booking_id|ref }}</span></td>
+          <td><span class="primary">{{ b.facility_name }}</span><span class="sub">{{ b.booking_date|date('%d %b %Y') }} · {{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.booked_by }}</span></td><td class="act">{{ b.status|badge }}</td></tr>
+      {% endfor %}</tbody></table>{% else %}{{ m.empty('No bookings', '', 'calendar') }}{% endif %}
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('box', 17) }} Equipment <span class="sub">· {{ results.equipment|length }}</span></h3></div>
+      {% if results.equipment %}<table class="table-ch compact"><tbody>{% for e in results.equipment %}
+        <tr><td><a class="primary" href="{{ url_for('equipment', q=e.equipment_name) }}">{{ e.equipment_name }}</a><span class="sub">{{ e.facility_name }}</span></td><td style="width: 45%">{{ m.stock(e.available_qty, e.quantity) }}</td></tr>
+      {% endfor %}</tbody></table>{% else %}{{ m.empty('No equipment', '', 'box') }}{% endif %}
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('users', 17) }} People <span class="sub">· {{ results.people|length }}</span></h3></div>
+      {% if results.people %}<table class="table-ch compact"><tbody>{% for p in results.people %}
+        <tr><td><a class="primary" href="{{ url_for('students', tab='students' if p.kind == 'Student' else 'faculty', q=p.code) }}">{{ p.name }}</a><span class="sub">{{ p.kind }} · {{ p.code }} · {{ p.department_name }}</span></td>
+            <td class="act"><a class="btn btn-ghost btn-sm" href="{{ url_for('bookings', view='all', q=p.name) }}">Bookings</a></td></tr>
+      {% endfor %}</tbody></table>{% else %}{{ m.empty('No people', '', 'users') }}{% endif %}
+    </section>
+  </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

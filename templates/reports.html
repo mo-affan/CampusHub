@@ -1,44 +1,151 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}Reports{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Reports</span>{% endblock %}
 {% block content %}
-<h1 class="page">Reports</h1>
-<p class="lead-sm">Generated live from SQL views and report queries.</p>
-<div class="row g-4">
-  <div class="col-lg-6">
-    <div class="card h-100"><div class="card-header">Most frequently booked facilities (top 5)</div>
-      <table class="table mb-0"><thead><tr><th>Facility</th><th>Type</th><th class="text-end">Bookings</th><th class="text-end">Hours</th></tr></thead><tbody>
-      {% for r in top %}<tr><td>{{ r.facility_name }}</td><td>{{ r.type_name }}</td><td class="text-end">{{ r.total_bookings }}</td><td class="text-end">{{ r.hours_booked }}</td></tr>{% endfor %}
-      </tbody></table></div>
+{% call m.page_head('Reports', 'Live results from SQL views and aggregate queries. Every table can be exported as CSV with the current filters.') %}{% endcall %}
+
+<form class="filters" method="get">
+  <div class="f-item narrow"><label for="date_from">From</label><input class="form-control" type="date" id="date_from" name="date_from" value="{{ f.date_from.isoformat() }}"></div>
+  <div class="f-item narrow"><label for="date_to">To</label><input class="form-control" type="date" id="date_to" name="date_to" value="{{ f.date_to.isoformat() }}"></div>
+  <div class="f-item"><label for="dept">Department</label>
+    <select class="form-select" id="dept" name="dept"><option value="">All departments</option>
+      {% for d in all_depts %}<option value="{{ d.department_id }}" {{ 'selected' if f.dept == d.department_id }}>{{ d.department_name }}</option>{% endfor %}</select></div>
+  <div class="f-item"><label for="type">Facility type</label>
+    <select class="form-select" id="type" name="type"><option value="">All types</option>
+      {% for t in types %}<option value="{{ t.facility_type_id }}" {{ 'selected' if f.type == t.facility_type_id }}>{{ t.type_name }}</option>{% endfor %}</select></div>
+  <div class="f-item narrow"><label for="status">Status</label>
+    <select class="form-select" id="status" name="status"><option value="">Any</option>
+      {% for s in ['CONFIRMED', 'COMPLETED', 'CANCELLED'] %}<option value="{{ s }}" {{ 'selected' if f.status == s }}>{{ s|title }}</option>{% endfor %}</select></div>
+  <div class="f-item narrow"><label for="min_cap">Large = over</label><input class="form-control" type="number" min="1" id="min_cap" name="min_cap" value="{{ f.min_cap }}"></div>
+  <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>Apply</button><a class="btn btn-ghost" href="{{ url_for('reports') }}">Reset</a></div>
+</form>
+<p class="small muted mb-3">Period: {{ f.date_from|date }} – {{ f.date_to|date }} ({{ days }} days). Department, type and status filters apply to booking reports; equipment reports show current stock.</p>
+
+<div class="kpis kpis-5">
+  {{ m.kpi('Bookings', summary.total|int, 'calendar', 'slate', sub=summary.facilities_used|int ~ ' facilities used') }}
+  {{ m.kpi('Completed', summary.completed|int, 'check-circle', 'teal') }}
+  {{ m.kpi('Confirmed', summary.confirmed|int, 'calendar-check', 'indigo', sub='upcoming or not yet closed') }}
+  {{ m.kpi('Cancelled', summary.cancelled|int, 'x-circle', 'rose',
+           sub=(((summary.cancelled|int) / (summary.total|int) * 100)|round(1) if summary.total else 0) ~ '% of bookings') }}
+  {{ m.kpi('Hours booked', summary.hours|num(1), 'clock', 'teal', sub='excluding cancelled') }}
+</div>
+
+<div class="stack">
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('chart', 17) }} Monthly booking statistics</h3>{{ m.export_link('monthly') }}</div>
+    <div class="card-body-ch">
+      {% if monthly %}
+      <div class="grid-main">
+        <div>{{ month_chart }}<div class="legend mt-2"><span><i class="c-completed"></i>Completed</span><span><i class="c-confirmed"></i>Confirmed</span><span><i class="c-cancelled"></i>Cancelled</span></div></div>
+        <table class="table-ch compact">
+          <thead><tr><th>Month</th><th class="num">Total</th><th class="num">Done</th><th class="num">Conf.</th><th class="num">Canc.</th></tr></thead>
+          <tbody>{% for r in monthly %}<tr><td>{{ r.month }}</td><td class="num"><b>{{ r.total }}</b></td><td class="num">{{ r.completed|int }}</td><td class="num">{{ r.confirmed|int }}</td><td class="num">{{ r.cancelled|int }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      {% else %}{{ m.empty('No bookings in this period', 'Widen the date range or clear filters.', 'chart') }}{% endif %}
+      <p class="small muted mt-3 mb-0">SQL: <code>DATE_FORMAT(booking_date, '%Y-%m')</code> with <code>GROUP BY</code> and conditional <code>SUM(status = …)</code>.</p>
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('activity', 17) }} Cancelled vs confirmed vs completed</h3>{{ m.export_link('status-split') }}</div>
+      <div class="card-body-ch">
+        <div class="donut-wrap">{{ split_chart }}
+          <div class="donut-list">{% set st = split|sum(attribute='value') %}
+            {% for s in split %}<div><span class="legend"><span><i class="{{ s.cls }}"></i>{{ s.label }}</span></span><b>{{ s.value }} <span class="muted fw-normal">· {{ ((s.value / st * 100) if st else 0)|round|int }}%</span></b></div>{% endfor %}
+          </div></div>
+        <p class="small muted mt-3 mb-0">Ignores the status filter so the three states can be compared.</p>
+      </div>
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('users', 17) }} Bookings by department</h3>{{ m.export_link('departments') }}</div>
+      <div class="card-body-ch">
+        {% if depts %}<div class="hbars">
+          {% for d in depts %}{{ m.hbar(d.department_name, d.bookings, d.bookings / dept_max * 100, sub=(d.cancelled|int) ~ ' cancelled', tone='indigo') }}{% endfor %}
+        </div>{% else %}{{ m.empty('No bookings in this period', '', 'users') }}{% endif %}
+        <p class="small muted mt-3 mb-0">Department of whoever booked: <code>COALESCE(s.department_id, fa.department_id)</code> joins the student or faculty row.</p>
+      </div>
+    </section>
   </div>
-  <div class="col-lg-6">
-    <div class="card h-100"><div class="card-header">Bookings by department</div>
-      <table class="table mb-0"><thead><tr><th>Department</th><th class="text-end">Bookings</th></tr></thead><tbody>
-      {% for r in dept %}<tr><td>{{ r.department_name }}</td><td class="text-end">{{ r.bookings }}</td></tr>{% endfor %}
-      </tbody></table></div>
+
+  <div class="grid-2">
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('building', 17) }} Most-booked facilities</h3>{{ m.export_link('top-facilities') }}</div>
+      {% if top %}<table class="table-ch compact">
+        <thead><tr><th>#</th><th>Facility</th><th class="num">Bookings</th><th class="num">Hours</th></tr></thead>
+        <tbody>{% for r in top %}<tr><td class="muted">{{ loop.index }}</td><td><a class="primary" href="{{ url_for('facility_detail', facility_id=r.facility_id) }}">{{ r.facility_name }}</a><span class="sub">{{ r.type_name }} · {{ r.building }}</span></td>
+          <td class="num"><b>{{ r.bookings }}</b></td><td class="num">{{ r.hours|num(1) }}</td></tr>{% endfor %}</tbody>
+      </table>{% else %}{{ m.empty('No bookings in this period', '', 'building') }}{% endif %}
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('clock', 17) }} Facility utilization</h3>{{ m.export_link('utilization') }}</div>
+      <div class="card-body-ch">
+        {% if util and util[0].hours|float > 0 %}<div class="hbars">
+          {% for r in util %}{{ m.hbar(r.facility_name, (r.pct|round(1)) ~ '%', r.bar, sub=(r.hours|num(1)) ~ ' h of ' ~ (days * 12) ~ ' h open',
+                                      href=url_for('facility_detail', facility_id=r.facility_id)) }}{% endfor %}
+        </div>{% else %}{{ m.empty('No booked hours in this period', '', 'clock') }}{% endif %}
+        <p class="small muted mt-3 mb-0">Label = booked hours ÷ open hours (12 h a day, 08:00–20:00) over the period. Bar length is relative to the busiest facility.</p>
+      </div>
+    </section>
   </div>
-  <div class="col-lg-4">
-    <div class="card h-100"><div class="card-header">Monthly booking statistics</div>
-      <table class="table mb-0"><thead><tr><th>Month</th><th class="text-end">Total</th><th class="text-end">Cancelled</th></tr></thead><tbody>
-      {% for r in monthly %}<tr><td>{{ r.month }}</td><td class="text-end">{{ r.total }}</td><td class="text-end">{{ r.cancelled }}</td></tr>{% endfor %}
-      </tbody></table></div>
+
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('box', 17) }} Equipment availability <span class="sub">· view <code>vw_equipment_availability</code></span></h3>{{ m.export_link('equipment') }}</div>
+    <div class="table-wrap"><table class="table-ch compact">
+      <thead><tr><th>Item</th><th>Facility</th><th>Availability</th><th class="num">Issued</th><th>Status</th></tr></thead>
+      <tbody>{% for e in equipment[:14] %}<tr><td class="primary">{{ e.equipment_name }}</td><td>{{ e.facility_name }}</td><td style="width: 28%">{{ m.stock(e.available_qty, e.quantity) }}</td>
+        <td class="num">{{ e.issued_qty }}</td><td>{{ m.stock_badge(e.available_qty, e.quantity) }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if equipment|length > 14 %}<div class="card-foot">Showing the 14 items with the lowest availability of {{ equipment|length }}. <a href="{{ url_for('equipment', sort='stock') }}">Full inventory</a> or download the CSV.</div>{% endif %}
+  </section>
+
+  <div class="grid-2">
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('layers', 17) }} Current issues <span class="sub">· view <code>vw_current_issues</code></span></h3>{{ m.export_link('current-issues') }}</div>
+      {% if issues %}<div class="table-wrap" style="max-height: 360px; overflow-y: auto;"><table class="table-ch compact">
+        <thead><tr><th>Item</th><th>Issued to</th><th>Due</th><th>Status</th></tr></thead>
+        <tbody>{% for i in issues %}<tr><td class="primary">{{ i.equipment_name }}</td><td>{{ i.issued_to }}<span class="sub">{{ i.user_type }}</span></td>
+          <td class="nowrap">{{ i.due_date|date('%d %b') }}</td><td>{{ status_badge(i.due_status) }}</td></tr>{% endfor %}</tbody>
+      </table></div>{% else %}{{ m.empty('Nothing is on loan', '', 'box') }}{% endif %}
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('alert', 17) }} Overdue equipment</h3>{{ m.export_link('overdue') }}</div>
+      {% if overdue %}<table class="table-ch compact">
+        <thead><tr><th>Item</th><th>Borrower</th><th>Due</th></tr></thead>
+        <tbody>{% for o in overdue %}<tr><td class="primary">{{ o.equipment_name }}<span class="sub">{{ o.facility_name }}</span></td><td>{{ o.issued_to }}<span class="sub">{{ o.user_type }}</span></td>
+          <td class="nowrap">{{ o.due_date|date('%d %b') }}<span class="sub">{{ o.due_date|rel_day }}</span></td></tr>{% endfor %}</tbody>
+      </table>{% else %}{{ m.empty('Nothing overdue', '', 'check-circle') }}{% endif %}
+    </section>
   </div>
-  <div class="col-lg-4">
-    <div class="card h-100"><div class="card-header">Facilities with repeated maintenance</div>
-      <table class="table mb-0"><thead><tr><th>Facility</th><th class="text-end">Requests</th></tr></thead><tbody>
-      {% for r in repeat %}<tr><td>{{ r.facility_name }}</td><td class="text-end">{{ r.maintenance_count }}</td></tr>{% else %}<tr><td colspan="2" class="text-secondary">None</td></tr>{% endfor %}
-      </tbody></table></div>
+
+  <div class="grid-2">
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('wrench', 17) }} Repeated maintenance <span class="sub">· GROUP BY … HAVING COUNT(*) &gt; 1</span></h3>{{ m.export_link('repeat-maintenance') }}</div>
+      {% if repeat %}<table class="table-ch compact">
+        <thead><tr><th>Facility</th><th class="num">Requests</th><th class="num">Open</th><th>Last reported</th></tr></thead>
+        <tbody>{% for r in repeat %}<tr><td><a class="primary" href="{{ url_for('facility_detail', facility_id=r.facility_id) }}">{{ r.facility_name }}</a></td>
+          <td class="num"><b>{{ r.requests }}</b></td><td class="num">{{ r.still_open|int }}</td><td class="nowrap">{{ r.last_reported|date('%d %b %Y') }}</td></tr>{% endfor %}</tbody>
+      </table>{% else %}{{ m.empty('No facility had more than one request in this period', '', 'check-circle') }}{% endif %}
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('users', 17) }} Facilities with capacity over {{ f.min_cap }}</h3>{{ m.export_link('large-facilities') }}</div>
+      {% if large %}<table class="table-ch compact">
+        <thead><tr><th>Facility</th><th>Type</th><th class="num">Capacity</th><th>Status</th></tr></thead>
+        <tbody>{% for r in large %}<tr><td><a class="primary" href="{{ url_for('facility_detail', facility_id=r.facility_id) }}">{{ r.facility_name }}</a><span class="sub">{{ r.building }}</span></td>
+          <td>{{ r.type_name }}</td><td class="num"><b>{{ r.capacity }}</b></td><td>{{ r.status|badge }}</td></tr>{% endfor %}</tbody>
+      </table>{% else %}{{ m.empty('No facility is that large', '', 'building') }}{% endif %}
+    </section>
   </div>
-  <div class="col-lg-4">
-    <div class="card h-100"><div class="card-header">Facilities with capacity above 100</div>
-      <table class="table mb-0"><thead><tr><th>Facility</th><th class="text-end">Capacity</th></tr></thead><tbody>
-      {% for r in big %}<tr><td>{{ r.facility_name }}</td><td class="text-end">{{ r.capacity }}</td></tr>{% endfor %}
-      </tbody></table></div>
-  </div>
-  <div class="col-12">
-    <div class="card"><div class="card-header">Overdue equipment</div>
-      <table class="table mb-0"><thead><tr><th>#</th><th>Equipment</th><th>Issued to</th><th>Due</th></tr></thead><tbody>
-      {% for r in overdue %}<tr><td>{{ r.issue_id }}</td><td>{{ r.equipment_name }}</td><td>{{ r.issued_to }} ({{ r.user_type }})</td><td>{{ r.due_date.strftime('%d %b %Y') }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Nothing overdue.</td></tr>{% endfor %}
-      </tbody></table></div>
-  </div>
+
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('list', 17) }} Maintenance history <span class="sub">· view <code>vw_maintenance_history</code></span></h3>{{ m.export_link('maintenance-history') }}</div>
+    {% if history %}<div class="table-wrap"><table class="table-ch compact">
+      <thead><tr><th>#</th><th>Facility</th><th>Fault</th><th>Handled by</th><th>Reported</th><th>Completed</th><th class="num">Days</th><th>Status</th></tr></thead>
+      <tbody>{% for r in history %}<tr><td class="muted">#{{ r.maintenance_id }}</td><td class="primary">{{ r.facility_name }}</td><td>{{ r.issue_description }}</td><td>{{ r.handled_by }}</td>
+        <td class="nowrap">{{ r.reported_date|date('%d %b') }}</td><td class="nowrap">{{ r.completion_date|date('%d %b') or '—' }}</td><td class="num">{{ r.days_open }}</td><td>{{ r.status|badge }}</td></tr>{% endfor %}</tbody>
+    </table></div>{% else %}{{ m.empty('No maintenance in this period', '', 'wrench') }}{% endif %}
+  </section>
 </div>
 {% endblock %}

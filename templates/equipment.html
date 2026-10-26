@@ -1,57 +1,82 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}Inventory{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Inventory</span>{% endblock %}
 {% block content %}
-<h1 class="page">Equipment inventory</h1>
-<p class="lead-sm">Stock is updated by triggers when items are issued or returned (view <code>vw_equipment_availability</code>).</p>
-<div class="row g-4">
-  <div class="col-lg-8">
-    <div class="card">
-      <div class="card-header">Stock by facility</div>
-      <table class="table mb-0 align-middle">
-        <thead><tr><th>Equipment</th><th>Facility</th><th class="text-end">Total</th><th class="text-end">Available</th><th class="text-end">Issued</th><th>Status</th></tr></thead>
-        <tbody>
-        {% for e in stock %}
-          <tr><td>{{ e.equipment_name }}</td><td>{{ e.facility_name }}</td><td class="text-end">{{ e.quantity }}</td>
-              <td class="text-end fw-bold">{{ e.available_qty }}</td><td class="text-end">{{ e.issued_qty }}</td>
-              <td><span class="badge badge-{{ e.availability_status }}">{{ e.availability_status }}</span></td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  <div class="col-lg-4">
-    <form class="card p-3" method="post">
-      <div class="card-title fw-bold" style="color:var(--navy)">Issue equipment</div>
-      <div class="mb-2"><label class="form-label">Item</label>
-        <select class="form-select" name="equipment_id">
-        {% for e in stock %}<option value="{{ e.equipment_id }}">{{ e.equipment_name }} – {{ e.available_qty }} left</option>{% endfor %}</select></div>
-      <div class="mb-2">
-        <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="user_type" value="student" id="iu-s" checked><label class="form-check-label" for="iu-s">Student</label></div>
-        <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="user_type" value="faculty" id="iu-f"><label class="form-check-label" for="iu-f">Faculty</label></div>
-      </div>
-      <div class="mb-2 pick-student"><select class="form-select" name="student_id">
-        {% for s in students %}<option value="{{ s.student_id }}">{{ s.name }} ({{ s.registration_no }})</option>{% endfor %}</select></div>
-      <div class="mb-2 pick-faculty d-none"><select class="form-select" name="faculty_id">
-        {% for f in faculty %}<option value="{{ f.faculty_id }}">{{ f.name }}</option>{% endfor %}</select></div>
-      <div class="mb-3"><label class="form-label">Loan period (days)</label><input class="form-control" type="number" name="days" value="7" min="1" max="60"></div>
-      <button class="btn btn-teal">Issue</button>
-    </form>
-  </div>
+{% call m.page_head('Equipment inventory', 'Stock levels are maintained by triggers: issuing lowers available quantity (T2), returning restores it (T3).') %}
+  <a class="btn btn-ghost" href="{{ url_for('issues') }}">{{ icon('list', 16) }} Issue history</a>
+  <a class="btn btn-brand" href="#issue-form">{{ icon('plus', 16) }} Issue equipment</a>
+{% endcall %}
+
+<div class="kpis kpis-5">
+  {{ m.kpi('Item types', k.item_types, 'box', 'slate', sub='equipment records') }}
+  {{ m.kpi('Units available', k.units_available|num, 'check-circle', 'teal', small='/' ~ (k.units_total|num), sub='ready to issue') }}
+  {{ m.kpi('On loan', k.issued_now, 'layers', 'indigo', sub='issues not yet returned', href=url_for('issues', view='current')) }}
+  {{ m.kpi('Low or out of stock', k.low_stock, 'alert', 'amber', sub=k.out_of_stock ~ ' completely out', href=url_with(stock='low', page=None)) }}
+  {{ m.kpi('Overdue', k.overdue, 'clock', 'rose', sub='past due date', alert=k.overdue > 0, href=url_for('issues', view='overdue')) }}
 </div>
-<div class="card mt-4">
-  <div class="card-header">Currently issued (<code>vw_current_issues</code>)</div>
-  <table class="table mb-0 align-middle">
-    <thead><tr><th>#</th><th>Equipment</th><th>Issued to</th><th>Issued</th><th>Due</th><th>Status</th><th></th></tr></thead>
-    <tbody>
-    {% for i in issues %}
-      <tr><td>{{ i.issue_id }}</td><td>{{ i.equipment_name }}</td><td>{{ i.issued_to }} <span class="text-secondary small">({{ i.user_type }})</span></td>
-          <td>{{ i.issue_date.strftime('%d %b') }}</td><td>{{ i.due_date.strftime('%d %b') }}</td>
-          <td><span class="badge badge-{{ i.due_status|replace(' ', '_') }}">{{ i.due_status }}</span></td>
-          <td class="text-end"><form method="post" action="{{ url_for('return_equipment', issue_id=i.issue_id) }}"><button class="btn btn-sm btn-outline-success">Return</button></form></td></tr>
-    {% else %}
-      <tr><td colspan="7" class="text-secondary">Nothing is issued right now.</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
+
+    <form class="filters" method="get">
+      <div class="f-item wide"><label for="q">Search</label><input class="form-control" id="q" name="q" value="{{ filters.q }}" placeholder="Item or facility"></div>
+      <div class="f-item"><label for="facility">Facility</label>
+        <select class="form-select" id="facility" name="facility"><option value="">All facilities</option>
+          {% for f in facilities %}<option value="{{ f.facility_id }}" {{ 'selected' if filters.facility == f.facility_id }}>{{ f.facility_name }}</option>{% endfor %}</select></div>
+      <div class="f-item narrow"><label for="stock">Stock</label>
+        <select class="form-select" id="stock" name="stock">
+          {% for v, l in [('', 'Any'), ('low', 'Low or out'), ('out', 'Out of stock'), ('ok', 'In stock')] %}<option value="{{ v }}" {{ 'selected' if filters.stock == v }}>{{ l }}</option>{% endfor %}</select></div>
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>Apply</button><a class="btn btn-ghost" href="{{ url_for('equipment') }}">Reset</a></div>
+    </form>
+    <section class="card-ch">
+      {% if page.items %}
+      <div class="table-wrap"><table class="table-ch">
+        <thead><tr>{{ m.sort_th('Item', 'name', sort) }}{{ m.sort_th('Facility', 'facility', sort) }}{{ m.sort_th('Availability', 'stock', sort) }}
+          {{ m.sort_th('Total', 'total', sort, 'num') }}<th class="num">Times issued</th><th>Status</th><th></th></tr></thead>
+        <tbody>{% for e in page.items %}
+          <tr>
+            <td class="primary">{{ e.equipment_name }}</td>
+            <td><a href="{{ url_for('facility_detail', facility_id=e.facility_id) }}">{{ e.facility_name }}</a></td>
+            <td style="min-width: 170px">{{ m.stock(e.available_qty, e.quantity) }}</td>
+            <td class="num">{{ e.quantity }}</td>
+            <td class="num">{{ e.times_issued }}</td>
+            <td>{{ m.stock_badge(e.available_qty, e.quantity) }}</td>
+            <td class="act"><a class="btn btn-soft btn-sm" href="{{ url_with(issue=e.equipment_id) }}#issue-form">Issue</a></td>
+          </tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}
+        {% call m.empty('No equipment matches', 'Change the search or stock filter.', 'box') %}<a class="btn btn-ghost btn-sm" href="{{ url_for('equipment') }}">Clear filters</a>{% endcall %}
+      {% endif %}
+      {{ m.pager(page, 'items') }}
+    </section>
+
+<div class="grid-2 mt-4">
+    <form class="card-ch" id="issue-form" method="post">
+      <div class="card-head"><h3>{{ icon('box', 17) }} Issue equipment</h3><span class="sub"><code>sp_issue_equipment</code></span></div>
+      <div class="card-body-ch">
+        <div class="mb-3"><label class="form-label" for="equipment_id">Item</label>
+          <select class="form-select" id="equipment_id" name="equipment_id" required>
+            {% for e in options %}
+            <option value="{{ e.equipment_id }}" {{ 'selected' if preselect == e.equipment_id }}>{{ e.equipment_name }} · {{ e.facility_name }} · {{ e.available_qty }}/{{ e.quantity }} left{{ ' · OUT OF STOCK' if e.available_qty == 0 }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-hint">Out-of-stock items stay selectable: trigger T2 refuses them.</div></div>
+        <div class="mb-3"><label class="form-label d-block">Issued to</label>{{ m.person_picker(students, faculty, 'iss') }}</div>
+        <div class="mb-3"><label class="form-label" for="days">Loan period (days)</label>
+          <input class="form-control" type="number" id="days" name="days" value="7" min="1" max="60"></div>
+        <button class="btn btn-brand w-100 justify-content-center" type="submit">{{ icon('check', 16) }} Issue item</button>
+      </div>
+    </form>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('clock', 17) }} Overdue returns</h3><a class="btn btn-ghost btn-sm" href="{{ url_for('issues', view='overdue') }}">All</a></div>
+      {% if overdue %}
+      <ul class="alert-list">{% for o in overdue %}
+        <li><span class="a-icon tone-danger">{{ icon('clock', 15) }}</span>
+          <div class="a-main"><div class="a-title">{{ o.equipment_name }}</div><div class="a-sub">{{ o.issued_to }} · due {{ o.due_date|date('%d %b') }} · {{ o.due_date|rel_day }}</div></div>
+          <form method="post" action="{{ url_for('return_equipment', issue_id=o.issue_id) }}" class="inline-form" data-confirm="Record {{ o.equipment_name }} as returned by {{ o.issued_to }} today?" data-confirm-title="Return item" data-confirm-ok="Mark returned">
+            <input type="hidden" name="next" value="{{ url_for('equipment') }}"><button class="btn btn-ghost btn-sm" type="submit">Return</button></form></li>
+      {% endfor %}</ul>
+      {% else %}{{ m.empty('Nothing overdue', 'Every issued item is within its due date.', 'check-circle') }}{% endif %}
+    </section>
 </div>
 {% endblock %}

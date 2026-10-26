@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}People{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>People</span>{% endblock %}
+{% block content %}
+{% call m.page_head('People', 'Students and faculty who can book facilities and borrow equipment.') %}
+  {% if tab == 'students' %}<a class="btn btn-brand" href="#add-student" onclick="document.getElementById('add-student').open = true">{{ icon('plus', 16) }} Add student</a>{% endif %}
+{% endcall %}
+
+<nav class="tabs">
+  <a class="tab{{ ' active' if tab == 'students' }}" href="{{ url_for('students', tab='students', q=q or None, dept=dept or None) }}">Students</a>
+  <a class="tab{{ ' active' if tab == 'faculty' }}" href="{{ url_for('students', tab='faculty', q=q or None, dept=dept or None) }}">Faculty</a>
+</nav>
+
+<form class="filters" method="get">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <div class="f-item wide"><label for="q">Search</label><input class="form-control" id="q" name="q" value="{{ q }}" placeholder="{{ 'Name, registration number or e-mail' if tab == 'students' else 'Name or employee code' }}"></div>
+  <div class="f-item"><label for="dept">Department</label>
+    <select class="form-select" id="dept" name="dept"><option value="">All departments</option>
+      {% for d in depts %}<option value="{{ d.department_id }}" {{ 'selected' if dept == d.department_id }}>{{ d.department_name }}</option>{% endfor %}</select></div>
+  <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>Apply</button><a class="btn btn-ghost" href="{{ url_for('students', tab=tab) }}">Reset</a></div>
+</form>
+
+<section class="card-ch">
+  {% if tab == 'students' %}
+    {% if page.items %}
+    <div class="table-wrap"><table class="table-ch">
+      <thead><tr><th>Reg. no.</th><th>Name</th><th>E-mail</th><th>Department</th><th class="num">Bookings</th><th class="num">Items out</th></tr></thead>
+      <tbody>{% for s in page.items %}<tr><td class="mono">{{ s.registration_no }}</td><td class="primary">{{ s.name }}</td><td>{{ s.email }}</td><td>{{ s.department_name }}</td>
+        <td class="num">{{ s.bookings }}</td><td class="num">{{ s.items_out }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}{{ m.empty('No students match', '', 'users') }}{% endif %}
+    {{ m.pager(page, 'students') }}
+  {% else %}
+    {% if staff %}
+    <div class="table-wrap"><table class="table-ch">
+      <thead><tr><th>Code</th><th>Name</th><th>Designation</th><th>E-mail</th><th>Department</th><th class="num">Bookings</th></tr></thead>
+      <tbody>{% for f in staff %}<tr><td class="mono">{{ f.employee_code }}</td><td class="primary">{{ f.name }}</td><td>{{ f.designation }}</td><td>{{ f.email }}</td>
+        <td>{{ f.department_name }}</td><td class="num">{{ f.bookings }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="pager"><span>{{ staff|length }} faculty members</span></div>
+    {% else %}{{ m.empty('No faculty match', '', 'users') }}{% endif %}
+  {% endif %}
+</section>
+
+{% if tab == 'students' %}
+<details class="card-ch mt-4" id="add-student">
+  <summary class="card-head" style="cursor:pointer; list-style:none"><h3>{{ icon('plus', 17) }} Add a student</h3>
+    <span class="sub">UNIQUE registration no. and e-mail · CHECK e-mail format · department is a foreign key</span></summary>
+  <form class="card-body-ch" method="post">
+    <div class="row g-3">
+      <div class="col-md-2"><label class="form-label" for="reg">Registration no.</label><input class="form-control" id="reg" name="registration_no" maxlength="15" required></div>
+      <div class="col-md-3"><label class="form-label" for="sname">Name</label><input class="form-control" id="sname" name="name" maxlength="100" required></div>
+      <div class="col-md-3"><label class="form-label" for="semail">E-mail</label><input class="form-control" id="semail" name="email" type="email" maxlength="120" required></div>
+      <div class="col-md-2"><label class="form-label" for="sphone">Phone</label><input class="form-control" id="sphone" name="phone" maxlength="15"></div>
+      <div class="col-md-2"><label class="form-label" for="sdept">Department</label>
+        <select class="form-select" id="sdept" name="department_id">{% for d in depts %}<option value="{{ d.department_id }}">{{ d.department_name }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="mt-3"><button class="btn btn-brand" type="submit">{{ icon('plus', 15) }} Add student</button></div>
+  </form>
+</details>
+{% endif %}
+{% endblock %}

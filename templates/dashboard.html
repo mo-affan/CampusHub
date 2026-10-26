@@ -1,29 +1,186 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}Dashboard{% endblock %}
+{% block heading %}Dashboard{% endblock %}
 {% block content %}
-<h1 class="page">Dashboard</h1>
-<p class="lead-sm">Live summary of campus facilities, bookings, equipment and maintenance · {{ today.strftime('%d %b %Y') }}</p>
-<div class="row g-3 mb-4">
-  <div class="col-6 col-md-3"><div class="card stat p-3"><div class="num">{{ stats.available }}<span class="fs-5 text-secondary">/{{ stats.total_fac }}</span></div><div class="lbl">Facilities available now</div></div></div>
-  <div class="col-6 col-md-3"><div class="card stat p-3"><div class="num">{{ stats.today }}</div><div class="lbl">Bookings today</div></div></div>
-  <div class="col-6 col-md-3"><div class="card stat p-3"><div class="num">{{ stats.issued }}</div><div class="lbl">Items issued ({{ stats.overdue }} overdue)</div></div></div>
-  <div class="col-6 col-md-3"><div class="card stat p-3"><div class="num">{{ stats.open_maint }}</div><div class="lbl">Open maintenance requests</div></div></div>
+{% call m.page_head('Campus overview', 'Live figures from the campushub MySQL database for ' ~ (today|date('%A, %d %B %Y')) ~ '.') %}
+  <a class="btn btn-ghost" href="{{ url_for('review') }}">{{ icon('play', 16) }} Review mode</a>
+  <a class="btn btn-brand" href="{{ url_for('new_booking') }}">{{ icon('plus', 16) }} New booking</a>
+{% endcall %}
+
+<div class="kpis">
+  {{ m.kpi('Total facilities', k.total_facilities, 'building', 'slate',
+           sub=(k.available_facilities ~ ' available · ' ~ k.maintenance_facilities ~ ' under maintenance'),
+           href=url_for('facilities')) }}
+  {{ m.kpi('Available now', k.available_facilities, 'check-circle', 'teal', small='/' ~ k.total_facilities,
+           sub='Bookable right now', href=url_for('facilities', status='AVAILABLE')) }}
+  {{ m.kpi('Upcoming bookings', k.upcoming_confirmed, 'calendar-check', 'indigo', sub='Confirmed, from today onwards',
+           href=url_for('bookings', view='upcoming')) }}
+  {{ m.kpi('Bookings today', k.bookings_today, 'clock', 'indigo', sub='Confirmed or completed today',
+           href=url_for('bookings', view='all', date_from=today.isoformat(), date_to=today.isoformat())) }}
+  {{ m.kpi('Equipment units available', k.units_available|num, 'box', 'teal', small='/' ~ (k.units_total|num),
+           sub=k.low_stock ~ ' item type' ~ ('s' if k.low_stock != 1) ~ ' low or out of stock', href=url_for('equipment')) }}
+  {{ m.kpi('Items on loan', k.issued_now, 'layers', 'slate', sub='Issued and not yet returned',
+           href=url_for('issues', view='current')) }}
+  {{ m.kpi('Open maintenance', k.open_maintenance, 'wrench', 'amber', sub='Reported or in progress',
+           href=url_for('maintenance', view='open')) }}
+  {{ m.kpi('Overdue returns', k.overdue, 'alert', 'rose', sub='Past their due date', alert=k.overdue > 0,
+           href=url_for('issues', view='overdue')) }}
 </div>
-<div class="card">
-  <div class="card-header d-flex justify-content-between align-items-center">Upcoming bookings
-    <a class="btn btn-sm btn-teal" href="{{ url_for('availability') }}">Find a free facility</a></div>
-  <div class="table-responsive">
-  <table class="table mb-0 align-middle">
-    <thead><tr><th>#</th><th>Facility</th><th>Date</th><th>Time</th><th>Booked by</th><th>Purpose</th></tr></thead>
-    <tbody>
-    {% for b in upcoming %}
-      <tr><td>{{ b.booking_id }}</td><td>{{ b.facility_name }}</td><td>{{ b.booking_date.strftime('%d %b %Y') }}</td>
-          <td>{{ b.start_time|hm }}–{{ b.end_time|hm }}</td><td>{{ b.booked_by }}</td><td>{{ b.purpose }}</td></tr>
-    {% else %}
-      <tr><td colspan="6" class="text-secondary">No upcoming bookings.</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
+
+<div class="stack">
+  <div class="grid-main">
+    <section class="card-ch">
+      <div class="card-head">
+        <h3>{{ icon('chart', 17) }} Booking activity <span class="sub">· bookings per week, current week highlighted</span></h3>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('reports') }}">Reports {{ icon('arrow-right', 14) }}</a>
+      </div>
+      <div class="card-body-ch">
+        {{ activity }}
+        <div class="legend mt-2"><span><i class="c-completed"></i>Completed</span><span><i class="c-confirmed"></i>Confirmed</span><span><i class="c-cancelled"></i>Cancelled</span></div>
+      </div>
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('activity', 17) }} Booking status <span class="sub">· last 90 days + next 30</span></h3></div>
+      <div class="card-body-ch">
+        <div class="donut-wrap">
+          {{ donut }}
+          <div class="donut-list">
+            {% set dtotal = distribution|sum(attribute='value') %}
+            {% for s in distribution %}
+            <div><span class="legend"><span><i class="{{ s.cls }}"></i>{{ s.label }}</span></span>
+                 <b>{{ s.value }} <span class="muted fw-normal">· {{ ((s.value / dtotal * 100) if dtotal else 0)|round|int }}%</span></b></div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
+
+  <div class="grid-main">
+    <section class="card-ch">
+      <div class="card-head">
+        <h3>{{ icon('building', 17) }} Facility utilization <span class="sub">· booked share of open hours, last 30 days</span></h3>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('availability') }}">Timeline</a>
+      </div>
+      <div class="card-body-ch">
+        {% if util and util[0].hours|float > 0 %}
+        <div class="hbars">
+          {% for r in util %}
+            {{ m.hbar(r.facility_name, (r.pct|round(1)) ~ '%', r.bar, sub=r.type_name ~ ' · ' ~ (r.hours|num(1)) ~ ' h · ' ~ r.bookings ~ ' bookings',
+                      href=url_for('facility_detail', facility_id=r.facility_id)) }}
+          {% endfor %}
+        </div>
+        {% else %}{{ m.empty('No bookings in the last 30 days', 'Utilization appears once facilities have been booked.', 'calendar') }}{% endif %}
+      </div>
+    </section>
+    <section class="card-ch">
+      <div class="card-head">
+        <h3>{{ icon('bell', 17) }} Alerts</h3>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('alerts') }}">All alerts</a>
+      </div>
+      {% if not (low or overdue or conflicts) %}
+        {{ m.empty('All clear', 'No overdue returns, low stock or booking conflicts right now.', 'check-circle') }}
+      {% else %}
+      <ul class="alert-list">
+        {% for c in conflicts %}
+        <li><span class="a-icon tone-danger">{{ icon('alert', 16) }}</span>
+            <div class="a-main"><div class="a-title">{{ c.facility_name }} is {{ c.facility_status|replace('_', ' ')|lower }}</div>
+            <div class="a-sub">{{ c.booking_id|ref }} still confirmed for {{ c.booking_date|date('%d %b') }}, {{ c.start_time|hm }}</div></div>
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('booking_detail', booking_id=c.booking_id) }}">Review</a></li>
+        {% endfor %}
+        {% for o in overdue %}
+        <li><span class="a-icon tone-danger">{{ icon('clock', 16) }}</span>
+            <div class="a-main"><div class="a-title">{{ o.equipment_name }} overdue</div>
+            <div class="a-sub">{{ o.issued_to }} · due {{ o.due_date|date('%d %b') }} ({{ o.due_date|rel_day }})</div></div>
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('issues', view='overdue') }}">Open</a></li>
+        {% endfor %}
+        {% for e in low %}
+        <li><span class="a-icon tone-warning">{{ icon('box', 16) }}</span>
+            <div class="a-main"><div class="a-title">{{ e.equipment_name }} {{ 'out of stock' if e.available_qty == 0 else 'running low' }}</div>
+            <div class="a-sub">{{ e.available_qty }} of {{ e.quantity }} left · {{ e.facility_name }}</div></div>
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('equipment', q=e.equipment_name) }}">View</a></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+  </div>
+
+  <div class="grid-main">
+    <section class="card-ch">
+      <div class="card-head">
+        <h3>{{ icon('calendar', 17) }} Recent bookings <span class="sub">· newest first</span></h3>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('bookings', view='all', sort='created') }}">All bookings</a>
+      </div>
+      {% if recent %}
+      <div class="table-wrap">
+        <table class="table-ch">
+          <thead><tr><th>Reference</th><th>Facility</th><th>When</th><th>Booked by</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for b in recent %}
+            <tr data-href="{{ url_for('booking_detail', booking_id=b.booking_id) }}">
+              <td><a class="ref" href="{{ url_for('booking_detail', booking_id=b.booking_id) }}">{{ b.booking_id|ref }}</a></td>
+              <td><span class="primary">{{ b.facility_name }}</span><span class="sub">{{ b.purpose }}</span></td>
+              <td class="nowrap">{{ b.booking_date|date('%d %b') }} <span class="sub">{{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.booking_date|rel_day }}</span></td>
+              <td>{{ b.booked_by }}</td>
+              <td>{{ b.status|badge }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}{{ m.empty('No bookings yet', 'Create the first booking to see it here.', 'calendar') }}{% endif %}
+    </section>
+    <div class="stack">
+      <section class="card-ch">
+        <div class="card-head"><h3>{{ icon('activity', 17) }} Quick actions</h3></div>
+        <div class="card-body-ch quick">
+          <a href="{{ url_for('new_booking') }}"><span class="q-icon">{{ icon('calendar-check', 17) }}</span>Book a facility</a>
+          <a href="{{ url_for('equipment') }}#issue-form"><span class="q-icon">{{ icon('box', 17) }}</span>Issue equipment</a>
+          <a href="{{ url_for('facilities') }}#add-facility"><span class="q-icon">{{ icon('building', 17) }}</span>Add facility</a>
+        </div>
+      </section>
+      <section class="card-ch">
+        <div class="card-head">
+          <h3>{{ icon('box', 17) }} Equipment stock <span class="sub">· lowest availability</span></h3>
+          <a class="btn btn-ghost btn-sm" href="{{ url_for('equipment', sort='stock') }}">Inventory</a>
+        </div>
+        <div class="card-body-ch">
+          {% for e in stock %}
+          <div class="d-flex justify-content-between align-items-center gap-3 {{ 'mb-2' if not loop.last }}">
+            <div class="text-truncate small"><b>{{ e.equipment_name }}</b><br><span class="muted">{{ e.facility_name }}</span></div>
+            <div style="width: 52%">{{ m.stock(e.available_qty, e.quantity) }}</div>
+          </div>
+          {% else %}{{ m.empty('No equipment recorded', '', 'box') }}{% endfor %}
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <section class="card-ch">
+    <div class="card-head">
+      <h3>{{ icon('wrench', 17) }} Recent maintenance activity</h3>
+      <a class="btn btn-ghost btn-sm" href="{{ url_for('maintenance', view='all') }}">Maintenance</a>
+    </div>
+    {% if maint %}
+    <div class="table-wrap">
+      <table class="table-ch compact">
+        <thead><tr><th>#</th><th>Facility</th><th>Issue</th><th>Reported</th><th>Completed</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for r in maint %}
+          <tr>
+            <td class="muted">#{{ r.maintenance_id }}</td>
+            <td><a href="{{ url_for('facility_detail', facility_id=r.facility_id) }}">{{ r.facility_name }}</a></td>
+            <td>{{ r.issue_description }}</td>
+            <td class="nowrap">{{ r.reported_date|date('%d %b') }} <span class="sub">{{ r.reported_date|rel_day }}</span></td>
+            <td class="nowrap">{{ r.completion_date|date('%d %b') or '—' }}</td>
+            <td>{{ r.status|badge }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}{{ m.empty('No maintenance recorded', '', 'wrench') }}{% endif %}
+  </section>
 </div>
 {% endblock %}

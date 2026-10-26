@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Review mode{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Review mode</span>{% endblock %}
+
+
+
+{% block content %}
+{% macro booking_post(fac_id, on, start, end, purpose, label, tone='btn-ghost', back=True) -%}
+<form method="post" action="{{ url_for('new_booking') }}" class="inline-form">
+  <input type="hidden" name="facility_id" value="{{ fac_id }}"><input type="hidden" name="date" value="{{ on }}">
+  <input type="hidden" name="start" value="{{ start }}"><input type="hidden" name="end" value="{{ end }}">
+  <input type="hidden" name="purpose" value="{{ purpose }}"><input type="hidden" name="user_type" value="student">
+  <input type="hidden" name="student_id" value="{{ d.student.student_id if d.student else '' }}">
+  {% if back %}<input type="hidden" name="next" value="{{ url_for('review') }}">{% endif %}
+  <button class="btn {{ tone }} btn-sm" type="submit">{{ label }}</button>
+</form>
+{%- endmacro %}
+{% call m.page_head('Review mode', 'A guided walk-through for the faculty review. Each step uses live rows picked from the database right now; the result appears at the top of this page or on the record it creates.') %}
+  <a class="btn btn-ghost" href="{{ url_for('status') }}">{{ icon('database', 16) }} Schema objects</a>
+{% endcall %}
+
+<div class="note info mb-4">{{ icon('info', 17) }}<div>Steps marked <b>creates data</b> write a real row (you can cancel or return it afterwards).
+  Steps marked <b>rejected</b> are refused by MySQL and change nothing. The message shows which trigger or constraint refused them.</div></div>
+
+<div class="steps">
+  <div class="step"><div class="step-no">1</div>
+    <div><h4>Live dashboard</h4><p>KPI cards, weekly activity, utilization and alerts are each one aggregate query (COUNT, SUM, GROUP BY) over the current data.</p>
+      <div class="d-flex gap-2 flex-wrap">{{ m.db_chip('Aggregates · scalar subqueries · joins') }}</div></div>
+    <div class="step-act"><a class="btn btn-ghost btn-sm" href="{{ url_for('dashboard') }}">Open dashboard</a></div></div>
+
+  <div class="step"><div class="step-no">2</div>
+    <div><h4>Find a free facility for tomorrow, 10:00–12:00</h4><p>Availability uses a correlated <code>NOT EXISTS</code> subquery over confirmed bookings, served by the composite index <code>idx_booking_slot</code>.</p>
+      <div class="expect">Expect: a list of free facilities; rooms under maintenance are excluded.</div></div>
+    <div class="step-act"><a class="btn btn-ghost btn-sm" href="{{ url_for('availability', date=d.tomorrow.isoformat(), start='10:00', end='12:00') }}">Search</a></div></div>
+
+  <div class="step"><div class="step-no">3</div>
+    <div><h4>Make a valid booking <span class="badge-soft tone-info">creates data</span></h4>
+      {% if d.free_facility and d.student %}
+      <p>Books <b>{{ d.free_facility.facility_name }}</b> tomorrow 07:00–08:00 for {{ d.student.name }} through <code>sp_create_booking</code> (transaction with <code>SELECT … FOR UPDATE</code>).</p>
+      <div class="expect">Expect: “Booking confirmed” and a new BK- reference.</div>
+      {% else %}<p class="muted">No facility is free tomorrow 07:00–08:00. Use the booking form instead.</p>{% endif %}</div>
+    <div class="step-act">{% if d.free_facility and d.student %}{{ booking_post(d.free_facility.facility_id, d.tomorrow.isoformat(), '07:00', '08:00', 'Review demo booking', 'Run', 'btn-brand', back=False) }}{% endif %}</div></div>
+
+  <div class="step"><div class="step-no">4</div>
+    <div><h4>Try to double-book <span class="badge-soft tone-danger">rejected</span></h4>
+      {% if d.target and plan.overlap %}
+      <p><b>{{ d.target.facility_name }}</b> is already booked on {{ d.target.booking_date|date('%a %d %b') }}, {{ d.target.start_time|hm }}–{{ d.target.end_time|hm }}
+        (<a href="{{ url_for('booking_detail', booking_id=d.target.booking_id) }}">{{ d.target.booking_id|ref }}</a>). This tries {{ plan.overlap[0] }}–{{ plan.overlap[1] }}, which overlaps it.</p>
+      <div class="expect">Expect: “Time slot overlaps an existing booking” from trigger <code>trg_booking_before_insert</code>; the transaction rolls back.</div>
+      {% else %}<p class="muted">No upcoming confirmed booking to collide with. Create one first.</p>{% endif %}</div>
+    <div class="step-act">{% if d.target and plan.overlap %}{{ booking_post(d.target.facility_id, d.target.booking_date|date('%Y-%m-%d'), plan.overlap[0], plan.overlap[1], 'Overlap test', 'Run') }}{% endif %}</div></div>
+
+  <div class="step"><div class="step-no">5</div>
+    <div><h4>Back-to-back booking is allowed <span class="badge-soft tone-info">creates data</span></h4>
+      {% if plan.b2b %}
+      <p>Books the same facility from {{ plan.b2b[0] }} to {{ plan.b2b[1] }}, starting exactly when {{ d.target.booking_id|ref }} ends. The overlap rule <code>start &lt; other.end AND end &gt; other.start</code> treats touching slots as free.</p>
+      <div class="expect">Expect: “Booking confirmed”.</div>
+      {% else %}<p class="muted">The slot right after the booking from step 4 is already taken, so this step is skipped today.</p>{% endif %}</div>
+    <div class="step-act">{% if plan.b2b %}{{ booking_post(d.target.facility_id, d.target.booking_date|date('%Y-%m-%d'), plan.b2b[0], plan.b2b[1], 'Back-to-back test', 'Run', back=False) }}{% endif %}</div></div>
+
+  <div class="step"><div class="step-no">6</div>
+    <div><h4>Book a facility under maintenance <span class="badge-soft tone-danger">rejected</span></h4>
+      {% if d.maintenance_facility %}
+      <p><b>{{ d.maintenance_facility.facility_name }}</b> has an open maintenance request, so trigger T4 set it to UNDER_MAINTENANCE.</p>
+      <div class="expect">Expect: “Facility is under maintenance or inactive” from trigger T1.</div>
+      {% else %}<p class="muted">No facility is under maintenance right now. Report a fault first (step 11).</p>{% endif %}</div>
+    <div class="step-act">{% if d.maintenance_facility %}{{ booking_post(d.maintenance_facility.facility_id, d.tomorrow.isoformat(), '10:00', '11:00', 'Maintenance test', 'Run') }}{% endif %}</div></div>
+
+  <div class="step"><div class="step-no">7</div>
+    <div><h4>End time before start time <span class="badge-soft tone-danger">rejected</span></h4>
+      <p>The form normally blocks this in the browser; this button sends 15:00–14:00 straight to MySQL to show the database enforces it too.</p>
+      <div class="expect">Expect: “End time must be after start time” from CHECK constraint <code>chk_booking_time</code>.</div></div>
+    <div class="step-act">{% if d.free_facility %}{{ booking_post(d.free_facility.facility_id, d.tomorrow.isoformat(), '15:00', '14:00', 'Invalid time test', 'Run') }}{% endif %}</div></div>
+
+  <div class="step"><div class="step-no">8</div>
+    <div><h4>Issue equipment that is out of stock <span class="badge-soft tone-danger">rejected</span></h4>
+      {% if d.empty_item and d.student %}
+      <p><b>{{ d.empty_item.equipment_name }}</b> ({{ d.empty_item.facility_name }}) has 0 units available.</p>
+      <div class="expect">Expect: “No unit of this equipment is available” from trigger <code>trg_issue_before_insert</code>.</div>
+      {% else %}<p class="muted">No item is fully issued right now.</p>{% endif %}</div>
+    <div class="step-act">{% if d.empty_item and d.student %}
+      <form method="post" action="{{ url_for('equipment') }}" class="inline-form">
+        <input type="hidden" name="equipment_id" value="{{ d.empty_item.equipment_id }}"><input type="hidden" name="user_type" value="student">
+        <input type="hidden" name="student_id" value="{{ d.student.student_id }}"><input type="hidden" name="days" value="3">
+        <input type="hidden" name="next" value="{{ url_for('review') }}"><button class="btn btn-ghost btn-sm" type="submit">Run</button></form>{% endif %}</div></div>
+
+  <div class="step"><div class="step-no">9</div>
+    <div><h4>Issue and return an item <span class="badge-soft tone-info">creates data</span></h4>
+      <p>Issue {{ d.stock_item.equipment_name if d.stock_item else 'an item' }}: available quantity drops by one (trigger T2). Return it from Issue history: it goes back up (trigger T3).</p>
+      <div class="expect">Watch the stock bar change on the Inventory page.</div></div>
+    <div class="step-act"><a class="btn btn-ghost btn-sm" href="{{ url_for('equipment', issue=d.stock_item.equipment_id if d.stock_item else None) }}#issue-form">Open inventory</a></div></div>
+
+  <div class="step"><div class="step-no">10</div>
+    <div><h4>Return the same item twice <span class="badge-soft tone-danger">rejected</span></h4>
+      {% if d.returned_issue %}
+      <p>Issue #{{ d.returned_issue.issue_id }} ({{ d.returned_issue.equipment_name }}) was already returned.</p>
+      <div class="expect">Expect: “This item is not currently issued” from <code>sp_return_equipment</code>; stock is not increased twice.</div>
+      {% else %}<p class="muted">No returned issue on record yet.</p>{% endif %}</div>
+    <div class="step-act">{% if d.returned_issue %}
+      <form method="post" action="{{ url_for('return_equipment', issue_id=d.returned_issue.issue_id) }}" class="inline-form">
+        <input type="hidden" name="next" value="{{ url_for('review') }}"><button class="btn btn-ghost btn-sm" type="submit">Run</button></form>{% endif %}</div></div>
+
+  <div class="step"><div class="step-no">11</div>
+    <div><h4>Maintenance controls availability <span class="badge-soft tone-info">creates data</span></h4>
+      <p>Report a fault: the facility turns UNDER_MAINTENANCE (trigger T4) and disappears from availability. Complete the request: it becomes bookable again (trigger T5), but only when no other request for it is still open.</p></div>
+    <div class="step-act"><a class="btn btn-ghost btn-sm" href="{{ url_for('maintenance') }}#report-form">Open maintenance</a></div></div>
+
+  <div class="step"><div class="step-no">12</div>
+    <div><h4>Reports and CSV export</h4><p>Views <code>vw_facility_usage</code>, <code>vw_equipment_availability</code>, <code>vw_current_issues</code>, <code>vw_maintenance_history</code>, plus GROUP BY / HAVING and DATE_FORMAT queries, with filters.</p></div>
+    <div class="step-act"><a class="btn btn-ghost btn-sm" href="{{ url_for('reports') }}">Open reports</a></div></div>
+
+  <div class="step"><div class="step-no">13</div>
+    <div><h4>SQL injection attempt</h4><p>Searches for <code>' OR '1'='1</code>. The text is passed as a parameter, so it is matched literally and finds nothing.</p></div>
+    <div class="step-act"><a class="btn btn-ghost btn-sm" href="{{ url_for('search', q="' OR '1'='1") }}">Run search</a></div></div>
+
+  <div class="step"><div class="step-no">14</div>
+    <div><h4>Concurrent bookings (two MySQL sessions)</h4>
+      <p>Shows the row lock that serializes bookings of the same facility. In MySQL Workbench open two query tabs:</p>
+{% set fid = d.free_facility.facility_id if d.free_facility else 1 %}{% set sid = d.student.student_id if d.student else 1 %}
+<pre class="sql-snippet"><span class="k">-- Tab A: lock the facility row and add a booking, do not commit yet</span>
+START TRANSACTION;
+SELECT * FROM campushub.facility WHERE facility_id = {{ fid }} FOR UPDATE;
+INSERT INTO campushub.booking (facility_id, student_id, faculty_id, booking_date, start_time, end_time, purpose)
+VALUES ({{ fid }}, {{ sid }}, NULL, CURDATE() + INTERVAL 30 DAY, '07:00', '08:00', 'lock test A');
+<span class="k">-- Tab B: overlapping booking, waits on the lock</span>
+CALL campushub.sp_create_booking({{ fid }}, {{ sid }}, NULL, CURDATE() + INTERVAL 30 DAY, '07:30', '08:30', 'lock test B', @id);
+<span class="k">-- Tab A: Tab B then fails with "Time slot overlaps an existing booking"</span>
+COMMIT;
+<span class="k">-- Clean up</span>
+SET SQL_SAFE_UPDATES = 0; DELETE FROM campushub.booking WHERE purpose LIKE 'lock test%'; SET SQL_SAFE_UPDATES = 1;</pre></div>
+    <div class="step-act"><span class="chip">Manual</span></div></div>
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Issue history{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <a href="{{ url_for('equipment') }}">Inventory</a> {{ icon('chevron-right', 12) }} <span>Issue history</span>{% endblock %}
+{% block content %}
+{% call m.page_head('Equipment issues', 'Who has what, when it is due, and the full return history.') %}
+  <a class="btn btn-brand" href="{{ url_for('equipment') }}#issue-form">{{ icon('plus', 16) }} Issue equipment</a>
+{% endcall %}
+
+<nav class="tabs">
+  {% for key, label in [('current', 'On loan'), ('overdue', 'Overdue'), ('returned', 'Returned'), ('all', 'All')] %}
+  <a class="tab{{ ' active' if view == key }}" href="{{ url_for('issues', view=key, q=q or None) }}">{{ label }} <span class="count">{{ (counts[key] if key != 'all' else counts.total)|int }}</span></a>
+  {% endfor %}
+</nav>
+
+<form class="filters" method="get">
+  <input type="hidden" name="view" value="{{ view }}">
+  <div class="f-item wide"><label for="q">Search</label><input class="form-control" id="q" name="q" value="{{ q }}" placeholder="Item, borrower or registration number"></div>
+  <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>Apply</button><a class="btn btn-ghost" href="{{ url_for('issues', view=view) }}">Reset</a></div>
+</form>
+
+<section class="card-ch">
+  {% if page.items %}
+  <div class="table-wrap"><table class="table-ch">
+    <thead><tr><th>Issue</th><th>Item</th><th>Issued to</th><th>Issued</th><th>Due</th><th>Returned</th><th>Status</th><th></th></tr></thead>
+    <tbody>{% for i in page.items %}
+      {% set late = i.status == 'ISSUED' and i.due_date|date('%Y-%m-%d') < today.isoformat() %}
+      <tr>
+        <td class="muted">#{{ i.issue_id }}</td>
+        <td><span class="primary">{{ i.equipment_name }}</span><span class="sub">{{ i.facility_name }}</span></td>
+        <td>{{ i.issued_to }}<span class="sub">{{ i.user_type }}</span></td>
+        <td class="nowrap">{{ i.issue_date|date('%d %b %Y') }}</td>
+        <td class="nowrap">{{ i.due_date|date('%d %b %Y') }}{% if i.status == 'ISSUED' %}<span class="sub">{{ i.due_date|rel_day }}</span>{% endif %}</td>
+        <td class="nowrap">{{ i.return_date|date('%d %b %Y') or '—' }}</td>
+        <td>{% if late %}{{ status_badge('OVERDUE') }}{% else %}{{ i.status|badge }}{% endif %}</td>
+        <td class="act">
+          {% if i.status == 'ISSUED' %}
+          <form method="post" action="{{ url_for('return_equipment', issue_id=i.issue_id) }}" class="inline-form"
+                data-confirm="Record {{ i.equipment_name }} as returned by {{ i.issued_to }} today? Trigger T3 will add the unit back to stock." data-confirm-title="Return item" data-confirm-ok="Mark returned">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-soft btn-sm" type="submit">{{ icon('undo', 14) }} Return</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}{{ m.empty('Nothing in this list', 'No issues match this view.', 'box') }}{% endif %}
+  {{ m.pager(page, 'issues') }}
+</section>
+{% endblock %}

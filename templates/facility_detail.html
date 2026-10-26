@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}{{ f.facility_name }}{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <a href="{{ url_for('facilities') }}">Facilities</a> {{ icon('chevron-right', 12) }} <span>{{ f.facility_name }}</span>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h2>{{ f.facility_name }} <span class="align-middle">{{ f.status|badge }}</span></h2>
+    <p>{{ f.type_name }} · {{ f.building }} · capacity {{ f.capacity }} · managed by {{ f.admin_name }}</p>
+  </div>
+  <div class="actions">
+    {% if f.status == 'AVAILABLE' %}
+    <form method="post" action="{{ url_for('facility_status', facility_id=f.facility_id) }}" class="inline-form"
+          data-confirm="Deactivating hides {{ f.facility_name }} from bookings. Existing bookings are kept." data-confirm-title="Deactivate facility?" data-confirm-ok="Deactivate" data-confirm-tone="danger">
+      <input type="hidden" name="active" value="0"><button class="btn btn-ghost" type="submit">{{ icon('power', 15) }} Deactivate</button></form>
+    {% elif f.status == 'INACTIVE' %}
+    <form method="post" action="{{ url_for('facility_status', facility_id=f.facility_id) }}" class="inline-form">
+      <input type="hidden" name="active" value="1"><button class="btn btn-ghost" type="submit">{{ icon('power', 15) }} Reactivate</button></form>
+    {% endif %}
+    <a class="btn btn-ghost" href="{{ url_for('maintenance', report=f.facility_id) }}#report-form">{{ icon('wrench', 15) }} Report a fault</a>
+    <a class="btn btn-brand" href="{{ url_for('new_booking', facility_id=f.facility_id) }}">{{ icon('calendar-check', 15) }} Book this facility</a>
+  </div>
+</div>
+
+{% if f.status == 'UNDER_MAINTENANCE' %}
+<div class="note warning mb-3">{{ icon('wrench', 17) }}<div><b>Out of service.</b> An open maintenance request set this facility to
+  UNDER_MAINTENANCE (trigger T4). MySQL rejects new bookings until the last open request is completed (trigger T5).</div></div>
+{% elif f.status == 'INACTIVE' %}
+<div class="note warning mb-3">{{ icon('power', 17) }}<div><b>Inactive.</b> This facility is not bookable. Trigger T1 rejects any booking attempt.</div></div>
+{% endif %}
+
+<div class="kpis">
+  {{ m.kpi('Capacity', f.capacity, 'users', 'slate', sub='people') }}
+  {{ m.kpi('Next 7 days', stats.next_7_days, 'calendar-check', 'indigo', sub='confirmed bookings') }}
+  {{ m.kpi('Hours booked', stats.hours_30d|num(1), 'clock', 'teal', sub='last 30 days') }}
+  {{ m.kpi('Maintenance records', stats.maintenance_count, 'wrench', 'amber', sub=stats.all_bookings ~ ' bookings all time') }}
+</div>
+
+<section class="card-ch mb-4">
+  <div class="card-head"><h3>{{ icon('clock', 17) }} Next 7 days</h3>
+    <div class="legend"><span><i class="c-confirmed"></i>Confirmed</span><span><i class="c-completed"></i>Completed</span><span class="muted">Click an empty hour to book it</span></div></div>
+  <div class="timeline-scroll"><div class="timeline">
+    <div class="tl-head"><div class="tl-label small-caps">Day</div>
+      <div class="tl-hours">{% for h in range(8, 21, 2) %}<span style="left: {{ (h - 7) / 14 * 100 }}%">{{ '%02d'|format(h) }}:00</span>{% endfor %}</div></div>
+    {% for row in timeline %}
+    <div class="tl-row{{ ' closed' if f.status != 'AVAILABLE' }}">
+      <div class="tl-label"><span class="primary">{{ row.label }}</span><span class="sub">{{ row.date|rel_day }} · {{ row['items']|length }} booking{{ 's' if row['items']|length != 1 }}</span></div>
+      <div class="tl-track">
+        {% if f.status == 'AVAILABLE' %}
+          {% for h in range(7, 21) %}<a class="tl-slot" style="left: {{ (h - 7) / 14 * 100 }}%; width: {{ 100 / 14 }}%"
+             href="{{ url_for('new_booking', facility_id=f.facility_id, date=row.date.isoformat(), start='%02d:00'|format(h), end='%02d:00'|format(h + 1)) }}">+ {{ '%02d'|format(h) }}:00</a>{% endfor %}
+        {% else %}<span class="tl-closed-note">{{ f.status|replace('_', ' ')|title }}</span>{% endif %}
+        {% for b in row['items'] %}
+          <a class="tl-block st-{{ b.status }}" style="left: {{ b.left }}%; width: {{ b.width }}%" href="{{ url_for('booking_detail', booking_id=b.booking_id) }}"
+             title="{{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.purpose }} · {{ b.booked_by }}"><b>{{ b.purpose or 'Booking' }}</b><span>{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div></div>
+</section>
+
+<div class="grid-2 mb-4">
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('box', 17) }} Equipment kept here</h3>
+      <a class="btn btn-ghost btn-sm" href="{{ url_for('equipment', facility=f.facility_id) }}">Inventory</a></div>
+    {% if equipment %}
+    <table class="table-ch compact">
+      <thead><tr><th>Item</th><th>Stock</th><th></th></tr></thead>
+      <tbody>{% for e in equipment %}
+        <tr><td class="primary">{{ e.equipment_name }}</td><td style="width:45%">{{ m.stock(e.available_qty, e.quantity) }}</td>
+            <td class="act">{{ m.stock_badge(e.available_qty, e.quantity) }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    {% else %}{{ m.empty('No equipment recorded', 'Items kept in this facility will appear here.', 'box') }}{% endif %}
+  </section>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('calendar-check', 17) }} Upcoming bookings</h3>
+      <a class="btn btn-ghost btn-sm" href="{{ url_for('bookings', view='upcoming', facility=f.facility_id) }}">All</a></div>
+    {% if upcoming %}
+    <table class="table-ch compact">
+      <tbody>{% for b in upcoming %}
+        <tr data-href="{{ url_for('booking_detail', booking_id=b.booking_id) }}">
+          <td class="nowrap"><b>{{ b.booking_date|date('%a %d %b') }}</b><span class="sub">{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></td>
+          <td>{{ b.purpose }}<span class="sub">{{ b.booked_by }}</span></td>
+          <td class="act"><span class="ref">{{ b.booking_id|ref }}</span></td>
+        </tr>
+      {% endfor %}</tbody>
+    </table>
+    {% else %}{{ m.empty('Nothing booked', 'No confirmed bookings in the next 60 days.', 'calendar') }}{% endif %}
+  </section>
+</div>
+
+<section class="card-ch">
+  <div class="card-head"><h3>{{ icon('wrench', 17) }} Maintenance history</h3></div>
+  {% if maintenance %}
+  <table class="table-ch compact">
+    <thead><tr><th>#</th><th>Issue</th><th>Handled by</th><th>Reported</th><th>Completed</th><th>Status</th></tr></thead>
+    <tbody>{% for r in maintenance %}
+      <tr><td class="muted">#{{ r.maintenance_id }}</td><td class="primary">{{ r.issue_description }}</td><td>{{ r.handled_by }}</td>
+          <td class="nowrap">{{ r.reported_date|date }}</td><td class="nowrap">{{ r.completion_date|date or '—' }}</td><td>{{ r.status|badge }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}{{ m.empty('No maintenance on record', '', 'check-circle') }}{% endif %}
+</section>
+{% endblock %}

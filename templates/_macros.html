@@ -1,0 +1,91 @@
+{# Reusable CampusHub components. Import with: {% import "_macros.html" as m with context %} #}
+
+{% macro page_head(title, subtitle='') -%}
+<div class="page-head">
+  <div>
+    <h2>{{ title }}</h2>
+    {% if subtitle %}<p>{{ subtitle }}</p>{% endif %}
+  </div>
+  {% if caller is defined %}<div class="actions">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro kpi(label, value, ic, tone='teal', sub=None, href=None, small=None, alert=False) -%}
+{% if href %}<a class="kpi tone-{{ tone }}{{ ' is-alert' if alert }}" href="{{ href }}">{% else %}<div class="kpi tone-{{ tone }}{{ ' is-alert' if alert }}">{% endif %}
+  <div class="kpi-top"><span class="kpi-label">{{ label }}</span><span class="kpi-icon">{{ icon(ic, 17) }}</span></div>
+  <div class="kpi-value">{{ value }}{% if small %}<small>{{ small }}</small>{% endif %}</div>
+  {% if sub %}<div class="kpi-sub">{{ sub }}</div>{% endif %}
+{% if href %}</a>{% else %}</div>{% endif %}
+{%- endmacro %}
+
+{% macro empty(title, text='', ic='search') -%}
+<div class="empty">
+  <div class="empty-icon">{{ icon(ic, 22) }}</div>
+  <h4>{{ title }}</h4>
+  {% if text %}<p>{{ text }}</p>{% endif %}
+  {% if caller is defined %}<div class="mt-3">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro pager(page, noun='records') -%}
+<div class="pager">
+  <span>{% if page.total %}Showing {{ page.first }}–{{ page.last }} of {{ page.total }} {{ noun }}{% else %}No {{ noun }}{% endif %}</span>
+  {% if page.pages > 1 %}
+  <nav class="pager-links" aria-label="Pages">
+    {% if page.has_prev %}<a href="{{ url_with(page=page.page - 1) }}" aria-label="Previous page">‹</a>{% else %}<span class="disabled">‹</span>{% endif %}
+    {% for p in page.window() %}
+      {% if p == page.page %}<span class="current" aria-current="page">{{ p }}</span>{% else %}<a href="{{ url_with(page=p) }}">{{ p }}</a>{% endif %}
+    {% endfor %}
+    {% if page.has_next %}<a href="{{ url_with(page=page.page + 1) }}" aria-label="Next page">›</a>{% else %}<span class="disabled">›</span>{% endif %}
+  </nav>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro sort_th(label, key, current, cls='') -%}
+<th class="{{ cls }}"><a href="{{ url_with(sort=key, page=None) }}" class="{{ 'active' if current == key }}">{{ label }}{% if current == key %} ▾{% endif %}</a></th>
+{%- endmacro %}
+
+{% macro stock(avail, total) -%}
+{% set st = stock_state(avail, total) %}
+<div class="stock" title="{{ avail }} of {{ total }} available">
+  <div class="stock-track"><div class="stock-fill {{ st|lower }}" style="width: {{ ((avail / total) * 100) if total else 0 }}%"></div></div>
+  <span class="stock-num">{{ avail }} / {{ total }}</span>
+</div>
+{%- endmacro %}
+
+{% macro stock_badge(avail, total) -%}
+{% set st = stock_state(avail, total) %}
+{% if st == 'OUT' %}{{ status_badge('OUT') }}{% elif st == 'LOW' %}{{ status_badge('LOW') }}{% else %}{{ status_badge('AVAILABLE', 'In stock') }}{% endif %}
+{%- endmacro %}
+
+{% macro hbar(label, value, pct, sub='', href=None, tone='') -%}
+<div class="hbar-row">
+  <div class="hbar-label">{% if href %}<a href="{{ href }}">{{ label }}</a>{% else %}{{ label }}{% endif %}{% if sub %}<span class="sub">{{ sub }}</span>{% endif %}</div>
+  <div class="hbar-track"><div class="hbar-fill {{ tone }}" style="width: {{ [pct, 0]|max }}%"></div></div>
+  <div class="hbar-value">{{ value }}</div>
+</div>
+{%- endmacro %}
+
+{% macro person_picker(students, faculty, prefix='p') -%}
+<div class="seg mb-2" role="radiogroup" aria-label="Who is it for">
+  <input type="radio" name="user_type" id="{{ prefix }}-s" value="student" checked><label for="{{ prefix }}-s">Student</label>
+  <input type="radio" name="user_type" id="{{ prefix }}-f" value="faculty"><label for="{{ prefix }}-f">Faculty</label>
+</div>
+<div class="pick-student">
+  <select class="form-select" name="student_id" aria-label="Student">
+    {% for s in students %}<option value="{{ s.student_id }}">{{ s.name }} · {{ s.registration_no }}</option>{% endfor %}
+  </select>
+</div>
+<div class="pick-faculty" hidden>
+  <select class="form-select" name="faculty_id" aria-label="Faculty member">
+    {% for f in faculty %}<option value="{{ f.faculty_id }}">{{ f.name }} · {{ f.employee_code }}</option>{% endfor %}
+  </select>
+</div>
+{%- endmacro %}
+
+{% macro export_link(key) -%}
+<a class="btn btn-ghost btn-sm" href="{{ url_for('export_report', key=key, **request.args.to_dict()) }}">{{ icon('download', 14) }} CSV</a>
+{%- endmacro %}
+
+{% macro db_chip(text) -%}<span class="chip chip-db">{{ icon('database', 13) }} {{ text }}</span>{%- endmacro %}

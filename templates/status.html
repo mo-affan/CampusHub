@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Database status{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Database status</span>{% endblock %}
+{% block content %}
+{% call m.page_head('Database status', 'Connection health and the schema objects CampusHub relies on, read live from MySQL information_schema.') %}{% endcall %}
+
+<section class="card-ch mb-4">
+  <div class="card-body-ch">
+    {% if info %}
+    <div class="health">
+      <span class="health-dot"></span>
+      <div><b>Connected to MySQL {{ info.version }}</b>
+        <div class="small muted">database <code>{{ info.db_name }}</code> · user {{ info.db_user }} · {{ info.host }}:{{ info.port }} · round trip {{ info.latency_ms }} ms · connection pool of {{ info.pool_size }}</div></div>
+    </div>
+    {% else %}
+    <div class="health">
+      <span class="health-dot down"></span>
+      <div><b>Cannot reach MySQL</b>{% for p in problems %}<div class="small muted">{{ p.message }} (error {{ p.code }})</div>{% endfor %}
+        <div class="small mt-1">Check that the MySQL service is running and that <code>DB_HOST</code>, <code>DB_PORT</code>, <code>DB_USER</code> and <code>DB_PASSWORD</code> in <code>.env</code> are correct.</div></div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+{% if info %}
+<div class="grid-2 mb-4">
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('grid', 17) }} Tables</h3><span class="sub">{{ counts|length }} tables · {{ counts|sum(attribute='row_count') }} rows</span></div>
+    <table class="table-ch compact"><tbody>{% for t in counts %}<tr><td class="mono">{{ t.table_name }}</td><td class="num"><b>{{ t.row_count }}</b> rows</td></tr>{% endfor %}</tbody></table>
+  </section>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('activity', 17) }} Triggers</h3><span class="sub">{{ objects.triggers|length }} defined</span></div>
+    {% if objects.triggers %}<table class="table-ch compact"><tbody>{% for t in objects.triggers %}
+      <tr><td class="mono">{{ t.name }}</td><td><span class="chip">{{ t.timing }} {{ t.event }}</span></td><td class="muted">on {{ t.on_table }}</td></tr>
+    {% endfor %}</tbody></table>{% else %}{{ m.empty('No triggers found', 'Run sql/02_logic.sql.', 'alert') }}{% endif %}
+  </section>
+</div>
+<div class="grid-3">
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('play', 17) }} Stored procedures</h3></div>
+    {% if objects.procedures %}<ul class="alert-list">{% for p in objects.procedures %}<li class="mono">{{ p.name }}</li>{% endfor %}</ul>{% else %}{{ m.empty('None found', 'Run sql/02_logic.sql.', 'alert') }}{% endif %}
+  </section>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('layers', 17) }} Views</h3></div>
+    {% if objects.views %}<ul class="alert-list">{% for v in objects.views %}<li class="mono">{{ v.name }}</li>{% endfor %}</ul>{% else %}{{ m.empty('None found', 'Run sql/02_logic.sql.', 'alert') }}{% endif %}
+  </section>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('search', 17) }} Indexes</h3></div>
+    {% if objects.indexes %}<ul class="alert-list">{% for i in objects.indexes %}<li><div><div class="mono">{{ i.name }}</div><div class="a-sub">{{ i.on_table }} ({{ i.columns }})</div></div></li>{% endfor %}</ul>{% else %}{{ m.empty('None found', 'Run sql/01_schema.sql.', 'alert') }}{% endif %}
+  </section>
+</div>
+{% endif %}
+{% endblock %}

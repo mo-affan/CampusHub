@@ -1,27 +1,69 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}New booking{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <a href="{{ url_for('bookings') }}">Bookings</a> {{ icon('chevron-right', 12) }} <span>New</span>{% endblock %}
 {% block content %}
-<h1 class="page">New booking</h1>
-<p class="lead-sm">Calls the stored procedure <code>sp_create_booking</code>; MySQL rejects overlapping slots and facilities under maintenance.</p>
-<form class="card p-4" method="post" style="max-width:760px">
-  <div class="mb-3"><label class="form-label">Facility</label>
-    <select class="form-select" name="facility_id" required>
-      {% for f in facilities %}<option value="{{ f.facility_id }}" {{ 'selected' if pre.facility_id == f.facility_id|string }}>{{ f.facility_name }} (capacity {{ f.capacity }}){{ ' – under maintenance' if f.status == 'UNDER_MAINTENANCE' }}</option>{% endfor %}
-    </select></div>
-  <div class="mb-3"><label class="form-label d-block">Booked by</label>
-    <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="user_type" value="student" id="ut-s" checked><label class="form-check-label" for="ut-s">Student</label></div>
-    <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="user_type" value="faculty" id="ut-f"><label class="form-check-label" for="ut-f">Faculty</label></div>
+{% call m.page_head('Book a facility', 'Pick a facility, a person and a time. The schedule on the right updates as you type.') %}
+  <a class="btn btn-ghost" href="{{ url_for('availability') }}">{{ icon('clock', 16) }} Find a free slot</a>
+{% endcall %}
+
+<div class="grid-side">
+  <form class="card-ch" id="booking-form" method="post">
+    <div class="card-head"><h3>{{ icon('calendar-check', 17) }} Booking details</h3><span class="sub">calls <code>sp_create_booking</code></span></div>
+    <div class="card-body-ch">
+      <div class="mb-3">
+        <label class="form-label" for="facility_id">Facility</label>
+        <select class="form-select" id="facility_id" name="facility_id" required>
+          <option value="">Choose a facility…</option>
+          {% for group in facilities|groupby('type_name') %}
+          <optgroup label="{{ group.grouper }}">
+            {% for f in group.list %}
+            <option value="{{ f.facility_id }}" {{ 'selected' if pre.facility_id == f.facility_id }}>{{ f.facility_name }} · {{ f.capacity }} seats{{ ' · under maintenance' if f.status == 'UNDER_MAINTENANCE' }}{{ ' · inactive' if f.status == 'INACTIVE' }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+        <div class="form-hint">Facilities under maintenance are listed so you can see MySQL refuse them.</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label d-block">Booked by</label>
+        {{ m.person_picker(students, faculty, 'bk') }}
+      </div>
+      <div class="row g-3 mb-3">
+        <div class="col-sm-5"><label class="form-label" for="date">Date</label>
+          <input class="form-control" type="date" id="date" name="date" value="{{ pre.date }}" required></div>
+        <div class="col-6 col-sm-3"><label class="form-label" for="start">Start</label>
+          <input class="form-control" type="time" id="start" name="start" value="{{ pre.start }}" step="900" required></div>
+        <div class="col-6 col-sm-4"><label class="form-label" for="end">End</label>
+          <input class="form-control" type="time" id="end" name="end" value="{{ pre.end }}" step="900" required>
+          <div class="field-error" id="time-error">End time must be after the start time.</div></div>
+      </div>
+      <div class="mb-4"><label class="form-label" for="purpose">Purpose</label>
+        <input class="form-control" id="purpose" name="purpose" maxlength="200" placeholder="e.g. Guest lecture on cloud security"></div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-brand" type="submit">{{ icon('check', 16) }} Confirm booking</button>
+        <a class="btn btn-ghost" href="{{ url_for('bookings') }}">Cancel</a>
+      </div>
+    </div>
+  </form>
+
+  <div class="stack">
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('clock', 17) }} That day's schedule</h3></div>
+      <div class="card-body-ch"><div class="day-preview" id="day-preview"><span class="muted">Choose a facility and date to see its schedule.</span></div></div>
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('shield', 17) }} What MySQL checks</h3></div>
+      <div class="card-body-ch small">
+        <ol class="ps-3 mb-0 d-grid gap-1">
+          <li><b>Row lock</b>: <code>SELECT … FOR UPDATE</code> on the facility, so two people can't book it at the same moment.</li>
+          <li><b>Trigger T1</b>: rejects facilities under maintenance or inactive, and any overlap with a confirmed booking.</li>
+          <li><b>CHECK</b> <code>chk_booking_time</code>: end after start. <code>chk_booking_person</code>: exactly one person.</li>
+          <li><b>Foreign keys</b>: facility and person must exist.</li>
+          <li><b>COMMIT</b> on success, otherwise <b>ROLLBACK</b> with the reason shown here.</li>
+        </ol>
+      </div>
+    </section>
   </div>
-  <div class="mb-3 pick-student"><select class="form-select" name="student_id">
-    {% for s in students %}<option value="{{ s.student_id }}">{{ s.name }} ({{ s.registration_no }})</option>{% endfor %}</select></div>
-  <div class="mb-3 pick-faculty d-none"><select class="form-select" name="faculty_id">
-    {% for f in faculty %}<option value="{{ f.faculty_id }}">{{ f.name }} ({{ f.employee_code }})</option>{% endfor %}</select></div>
-  <div class="row g-3 mb-3">
-    <div class="col-md-4"><label class="form-label">Date</label><input class="form-control" type="date" name="date" value="{{ pre.date }}" required></div>
-    <div class="col-md-4"><label class="form-label">Start time</label><input class="form-control" type="time" name="start" value="{{ pre.start }}" required></div>
-    <div class="col-md-4"><label class="form-label">End time</label><input class="form-control" type="time" name="end" value="{{ pre.end }}" required></div>
-  </div>
-  <div class="mb-3"><label class="form-label">Purpose</label><input class="form-control" name="purpose" maxlength="200" placeholder="e.g. Club workshop"></div>
-  <div><button class="btn btn-teal">Confirm booking</button> <a class="btn btn-link" href="{{ url_for('bookings') }}">Back</a></div>
-</form>
+</div>
 {% endblock %}

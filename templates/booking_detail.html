@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}{{ b.booking_id|ref }}{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <a href="{{ url_for('bookings') }}">Bookings</a> {{ icon('chevron-right', 12) }} <span>{{ b.booking_id|ref }}</span>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h2><span class="mono">{{ b.booking_id|ref }}</span> <span class="align-middle">{{ b.status|badge }}</span></h2>
+    <p>{{ b.facility_name }} · {{ b.booking_date|date('%A %d %B %Y') }} · {{ b.start_time|hm }}–{{ b.end_time|hm }}</p>
+  </div>
+  <div class="actions">
+    {% if b.status == 'CONFIRMED' and b.booking_date|date('%Y-%m-%d') <= today.isoformat() %}
+    <form method="post" action="{{ url_for('complete_booking', booking_id=b.booking_id) }}" class="inline-form">
+      <button class="btn btn-ghost" type="submit">{{ icon('check', 16) }} Mark completed</button></form>
+    {% endif %}
+    {% if b.status == 'CONFIRMED' %}
+    <form method="post" action="{{ url_for('cancel_booking', booking_id=b.booking_id) }}" class="inline-form"
+          data-confirm="Cancel {{ b.booking_id|ref }}? The slot becomes free for others. The row is kept as CANCELLED for history."
+          data-confirm-title="Cancel this booking?" data-confirm-ok="Cancel booking" data-confirm-tone="danger">
+      <button class="btn btn-danger-soft" type="submit">{{ icon('x-circle', 16) }} Cancel booking</button></form>
+    {% endif %}
+    <a class="btn btn-brand" href="{{ url_for('new_booking', facility_id=b.facility_id) }}">{{ icon('plus', 16) }} Book again</a>
+  </div>
+</div>
+
+{% if b.status == 'CONFIRMED' and b.facility_status != 'AVAILABLE' %}
+<div class="note danger mb-3">{{ icon('alert', 17) }}<div><b>Conflict:</b> {{ b.facility_name }} is now {{ b.facility_status|replace('_', ' ')|lower }}.
+  Contact {{ b.booked_by }} or cancel this booking.</div></div>
+{% endif %}
+
+<div class="grid-side">
+  <div class="stack">
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('list', 17) }} Booking details</h3></div>
+      <div class="card-body-ch">
+        <dl class="dl">
+          <dt>Reference</dt><dd><span class="ref">{{ b.booking_id|ref }}</span> <span class="muted small">(booking_id {{ b.booking_id }})</span></dd>
+          <dt>Facility</dt><dd><a href="{{ url_for('facility_detail', facility_id=b.facility_id) }}">{{ b.facility_name }}</a> · {{ b.type_name }} · {{ b.building }} · {{ b.capacity }} seats</dd>
+          <dt>Date</dt><dd>{{ b.booking_date|date('%A %d %B %Y') }} <span class="muted">({{ b.booking_date|rel_day }})</span></dd>
+          <dt>Time</dt><dd class="tabular">{{ b.start_time|hm }}–{{ b.end_time|hm }} <span class="muted">· {{ duration(b.start_time, b.end_time) }}</span></dd>
+          <dt>Booked by</dt><dd>{{ b.booked_by }} <span class="muted">· {{ b.user_type }} {{ b.person_code }} · {{ b.department_name }}</span></dd>
+          <dt>E-mail</dt><dd>{{ b.person_email }}</dd>
+          <dt>Purpose</dt><dd>{{ b.purpose or '—' }}</dd>
+          <dt>Status</dt><dd>{{ b.status|badge }}</dd>
+          <dt>Created</dt><dd>{{ b.created_at|datetime }}</dd>
+        </dl>
+      </div>
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('calendar', 17) }} Same facility, same day</h3></div>
+      {% if same_day %}
+      <table class="table-ch compact"><tbody>
+        {% for x in same_day %}
+        <tr data-href="{{ url_for('booking_detail', booking_id=x.booking_id) }}">
+          <td class="tabular nowrap"><b>{{ x.start_time|hm }}–{{ x.end_time|hm }}</b></td><td>{{ x.purpose }}<span class="sub">{{ x.booked_by }}</span></td>
+          <td>{{ x.status|badge }}</td><td class="act"><span class="ref">{{ x.booking_id|ref }}</span></td></tr>
+        {% endfor %}
+      </tbody></table>
+      {% else %}{{ m.empty('No other bookings that day', '', 'calendar') }}{% endif %}
+    </section>
+  </div>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('database', 17) }} How MySQL stored it</h3></div>
+    <div class="card-body-ch small d-grid gap-2">
+      <p class="mb-0">Bookings made in CampusHub are written by the stored procedure inside one transaction. For this booking the call is:</p>
+<pre class="sql-snippet"><span class="k">CALL</span> sp_create_booking({{ b.facility_id }}, {{ b.student_id if b.student_id else 'NULL' }}, {{ b.faculty_id if b.faculty_id else 'NULL' }},
+  '{{ b.booking_date|date('%Y-%m-%d') }}', '{{ b.start_time|hm }}', '{{ b.end_time|hm }}', …, @id);</pre>
+      <p class="mb-0">The procedure locks facility {{ b.facility_id }} with <code>SELECT … FOR UPDATE</code>, trigger <code>trg_booking_before_insert</code> checks the facility status and overlaps, and the transaction commits or rolls back. (Rows loaded from the sample-data scripts go through the same trigger, without the procedure.)</p>
+      <p class="mb-0 muted">Cancelling only changes <code>status</code> to CANCELLED. The row stays for reporting, and cancelled rows are ignored by the overlap check.</p>
+    </div>
+  </section>
+</div>
+{% endblock %}

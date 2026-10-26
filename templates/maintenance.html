@@ -1,40 +1,94 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}Maintenance{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Maintenance</span>{% endblock %}
 {% block content %}
-<h1 class="page">Maintenance</h1>
-<p class="lead-sm">Logging a request takes the facility out of service (trigger T4); completing the last open request reopens it (trigger T5).</p>
-<div class="row g-4">
-  <div class="col-lg-8">
-    <div class="card">
-      <div class="card-header">History (<code>vw_maintenance_history</code>)</div>
-      <div class="table-responsive">
-      <table class="table mb-0 align-middle">
-        <thead><tr><th>#</th><th>Facility</th><th>Issue</th><th>Handled by</th><th>Reported</th><th>Days</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-        {% for m in rows %}
-          <tr><td>{{ m.maintenance_id }}</td><td>{{ m.facility_name }}</td><td>{{ m.issue_description }}</td><td>{{ m.handled_by }}</td>
-              <td>{{ m.reported_date.strftime('%d %b') }}</td><td>{{ m.days_open }}</td>
-              <td><span class="badge badge-{{ m.status }}">{{ m.status }}</span></td>
-              <td class="text-end">{% if m.status != 'COMPLETED' %}
-                <form method="post" action="{{ url_for('complete_maintenance', mid=m.maintenance_id) }}"><button class="btn btn-sm btn-outline-success">Mark completed</button></form>{% endif %}</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-      </div>
-    </div>
-  </div>
-  <div class="col-lg-4">
-    <form class="card p-3" method="post">
-      <div class="card-title fw-bold" style="color:var(--navy)">Report a fault</div>
-      <div class="mb-2"><label class="form-label">Facility</label>
-        <select class="form-select" name="facility_id">
-        {% for f in facilities %}<option value="{{ f.facility_id }}">{{ f.facility_name }}{{ ' (under maintenance)' if f.status == 'UNDER_MAINTENANCE' }}</option>{% endfor %}</select></div>
-      <div class="mb-2"><label class="form-label">Assigned admin</label>
-        <select class="form-select" name="admin_id">
-        {% for a in admins %}<option value="{{ a.admin_id }}">{{ a.name }}</option>{% endfor %}</select></div>
-      <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3" maxlength="255" required></textarea></div>
-      <button class="btn btn-teal">Log request</button>
+{% call m.page_head('Maintenance', 'Logging a fault takes the facility out of service (trigger T4). Completing its last open request brings it back (trigger T5).') %}
+  <a class="btn btn-brand" href="#report-form">{{ icon('plus', 16) }} Report a fault</a>
+{% endcall %}
+
+<div class="kpis">
+  {{ m.kpi('Open requests', k.open_count|int, 'wrench', 'amber', sub=(k.reported|int) ~ ' reported · ' ~ (k.in_progress|int) ~ ' in progress', href=url_for('maintenance', view='open')) }}
+  {{ m.kpi('Facilities out of service', closed|length, 'building', 'rose', sub='status UNDER_MAINTENANCE', alert=closed|length > 0) }}
+  {{ m.kpi('Completed (30 days)', k.completed_30d|int, 'check-circle', 'teal', sub='requests closed recently', href=url_for('maintenance', view='completed')) }}
+  {{ m.kpi('Average repair time', (k.avg_days|num(1)) if k.avg_days is not none else '—', 'clock', 'indigo', small=' days' if k.avg_days is not none else None, sub='reported → completed') }}
+</div>
+
+    <nav class="tabs">
+      {% for key, label in [('open', 'Open'), ('reported', 'Reported'), ('in_progress', 'In progress'), ('completed', 'Completed'), ('all', 'All')] %}
+      <a class="tab{{ ' active' if view == key }}" href="{{ url_for('maintenance', view=key, facility=facility_filter or None, q=q or None) }}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <form class="filters" method="get">
+      <input type="hidden" name="view" value="{{ view }}">
+      <div class="f-item wide"><label for="q">Search</label><input class="form-control" id="q" name="q" value="{{ q }}" placeholder="Fault description or facility"></div>
+      <div class="f-item"><label for="facility">Facility</label>
+        <select class="form-select" id="facility" name="facility"><option value="">All facilities</option>
+          {% for f in facilities %}<option value="{{ f.facility_id }}" {{ 'selected' if facility_filter == f.facility_id }}>{{ f.facility_name }}</option>{% endfor %}</select></div>
+      <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>Apply</button><a class="btn btn-ghost" href="{{ url_for('maintenance', view=view) }}">Reset</a></div>
     </form>
-  </div>
+    <section class="card-ch">
+      {% if page.items %}
+      <div class="table-wrap"><table class="table-ch">
+        <thead><tr><th>#</th><th>Facility</th><th>Fault</th><th>Reported</th><th>Open for</th><th>Status</th><th></th></tr></thead>
+        <tbody>{% for r in page.items %}
+          {% set age = r.days_open|int %}
+          <tr>
+            <td class="muted">#{{ r.maintenance_id }}</td>
+            <td><a class="primary" href="{{ url_for('facility_detail', facility_id=r.facility_id) }}">{{ r.facility_name }}</a>
+                <span class="sub">{{ r.facility_status|replace('_', ' ')|lower }}</span></td>
+            <td>{{ r.issue_description }}<span class="sub">handled by {{ r.handled_by }}</span></td>
+            <td class="nowrap">{{ r.reported_date|date('%d %b %Y') }}{% if r.completion_date %}<span class="sub">done {{ r.completion_date|date('%d %b') }}</span>{% endif %}</td>
+            <td class="nowrap">
+              {% if r.status == 'COMPLETED' %}<span class="muted">{{ age }} day{{ 's' if age != 1 }}</span>
+              {% else %}<span class="badge-soft {{ 'tone-danger' if age > 7 else ('tone-warning' if age > 2 else 'tone-info') }}">{{ age }} day{{ 's' if age != 1 }}</span>{% endif %}
+            </td>
+            <td>{{ r.status|badge }}</td>
+            <td class="act">
+              {% if r.status == 'REPORTED' %}
+              <form method="post" action="{{ url_for('start_maintenance', mid=r.maintenance_id) }}" class="inline-form">
+                <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-ghost btn-sm" type="submit">Start work</button></form>
+              {% endif %}
+              {% if r.status != 'COMPLETED' %}
+              <form method="post" action="{{ url_for('complete_maintenance', mid=r.maintenance_id) }}" class="inline-form"
+                    data-confirm="Mark request #{{ r.maintenance_id }} for {{ r.facility_name }} as completed today? If no other request is open, the facility becomes bookable again (trigger T5)."
+                    data-confirm-title="Complete maintenance" data-confirm-ok="Mark completed">
+                <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-soft btn-sm" type="submit">Complete</button></form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}{{ m.empty('No requests in this view', 'Nothing matches the selected status and filters.', 'wrench') }}{% endif %}
+      {{ m.pager(page, 'requests') }}
+    </section>
+
+<div class="grid-2 mt-4">
+    <form class="card-ch" id="report-form" method="post">
+      <div class="card-head"><h3>{{ icon('wrench', 17) }} Report a fault</h3><span class="sub"><code>sp_record_maintenance</code></span></div>
+      <div class="card-body-ch">
+        <div class="mb-3"><label class="form-label" for="m-facility">Facility</label>
+          <select class="form-select" id="m-facility" name="facility_id" required>
+            {% for f in facilities %}<option value="{{ f.facility_id }}" {{ 'selected' if preselect == f.facility_id }}>{{ f.facility_name }}{{ ' · already under maintenance' if f.status == 'UNDER_MAINTENANCE' }}</option>{% endfor %}
+          </select></div>
+        <div class="mb-3"><label class="form-label" for="m-admin">Assigned administrator</label>
+          <select class="form-select" id="m-admin" name="admin_id" required>{% for a in admins %}<option value="{{ a.admin_id }}">{{ a.name }} · {{ a.role|replace('_', ' ')|lower }}</option>{% endfor %}</select></div>
+        <div class="mb-3"><label class="form-label" for="m-desc">What is wrong?</label>
+          <textarea class="form-control" id="m-desc" name="description" rows="3" maxlength="255" required placeholder="e.g. Projector not powering on"></textarea></div>
+        <div class="note warning mb-3 small">{{ icon('alert', 15) }}<span>The facility becomes <b>UNDER_MAINTENANCE</b> and cannot be booked until this request is completed.</span></div>
+        <button class="btn btn-brand w-100 justify-content-center" type="submit">{{ icon('check', 16) }} Log request</button>
+      </div>
+    </form>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('building', 17) }} Out of service now</h3></div>
+      {% if closed %}
+      <ul class="alert-list">{% for f in closed %}
+        <li><span class="a-icon tone-warning">{{ icon('wrench', 15) }}</span>
+          <div class="a-main"><div class="a-title"><a href="{{ url_for('facility_detail', facility_id=f.facility_id) }}">{{ f.facility_name }}</a></div>
+            <div class="a-sub">{{ f.building }} · {{ f.open_requests }} open request{{ 's' if f.open_requests != 1 }}</div></div>
+          <a class="btn btn-ghost btn-sm" href="{{ url_for('maintenance', view='open', facility=f.facility_id) }}">Requests</a></li>
+      {% endfor %}</ul>
+      {% else %}{{ m.empty('Every facility is in service', '', 'check-circle') }}{% endif %}
+    </section>
 </div>
 {% endblock %}

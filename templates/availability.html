@@ -1,34 +1,78 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}Availability{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Availability</span>{% endblock %}
 {% block content %}
-<h1 class="page">Find a free facility</h1>
-<p class="lead-sm">Shows facilities that are available and have no confirmed booking overlapping the chosen slot.</p>
-<form class="card p-3 mb-4" method="get">
-  <div class="row g-3 align-items-end">
-    <div class="col-md-3"><label class="form-label">Date</label><input class="form-control" type="date" name="date" value="{{ sel.date }}" required></div>
-    <div class="col-md-2"><label class="form-label">Start</label><input class="form-control" type="time" name="start" value="{{ sel.start }}" required></div>
-    <div class="col-md-2"><label class="form-label">End</label><input class="form-control" type="time" name="end" value="{{ sel.end }}" required></div>
-    <div class="col-md-2"><label class="form-label">Type</label>
-      <select class="form-select" name="type"><option value="">Any</option>
-      {% for t in types %}<option value="{{ t.facility_type_id }}" {{ 'selected' if sel.type|string == t.facility_type_id|string }}>{{ t.type_name }}</option>{% endfor %}</select></div>
-    <div class="col-md-2"><label class="form-label">Min. capacity</label><input class="form-control" type="number" min="1" name="min_cap" value="{{ sel.min_cap }}"></div>
-    <div class="col-md-1"><button class="btn btn-teal w-100">Search</button></div>
-  </div>
+{% call m.page_head('Availability', 'Find a free facility for a time slot, or scan the whole day on the timeline. Click any empty hour to book it.') %}
+  <a class="btn btn-brand" href="{{ url_for('new_booking') }}">{{ icon('plus', 16) }} New booking</a>
+{% endcall %}
+
+<form class="filters" method="get">
+  <div class="f-item"><label for="date">Date</label><input class="form-control" id="date" type="date" name="date" value="{{ on.isoformat() }}" required></div>
+  <div class="f-item narrow"><label for="start">From</label><input class="form-control" id="start" type="time" name="start" value="{{ start }}" step="900"></div>
+  <div class="f-item narrow"><label for="end">To</label><input class="form-control" id="end" type="time" name="end" value="{{ end }}" step="900"></div>
+  <div class="f-item"><label for="type">Type</label>
+    <select class="form-select" id="type" name="type"><option value="">All types</option>
+      {% for t in types %}<option value="{{ t.facility_type_id }}" {{ 'selected' if type_id == t.facility_type_id }}>{{ t.type_name }}</option>{% endfor %}</select></div>
+  <div class="f-item"><label for="building">Building</label>
+    <select class="form-select" id="building" name="building"><option value="">All buildings</option>
+      {% for b in buildings %}<option {{ 'selected' if building == b }}>{{ b }}</option>{% endfor %}</select></div>
+  <div class="f-item narrow"><label for="min_cap">Min. capacity</label><input class="form-control" id="min_cap" type="number" min="1" name="min_cap" value="{{ min_cap or '' }}"></div>
+  <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>{{ icon('search', 15) }} Search</button>
+    <a class="btn btn-ghost" href="{{ url_for('availability') }}">Reset</a></div>
 </form>
-{% if rows is not none %}
-<div class="card">
-  <div class="card-header">{{ rows|length }} facilit{{ 'y' if rows|length == 1 else 'ies' }} free on {{ sel.date }}, {{ sel.start }}–{{ sel.end }}</div>
-  <table class="table mb-0 align-middle">
-    <thead><tr><th>Facility</th><th>Type</th><th>Building</th><th>Capacity</th><th></th></tr></thead>
-    <tbody>
-    {% for f in rows %}
-      <tr><td>{{ f.facility_name }}</td><td>{{ f.type_name }}</td><td>{{ f.building }}</td><td>{{ f.capacity }}</td>
-          <td class="text-end"><a class="btn btn-sm btn-teal" href="{{ url_for('new_booking', facility_id=f.facility_id, date=sel.date, start=sel.start, end=sel.end) }}">Book</a></td></tr>
-    {% else %}
-      <tr><td colspan="5" class="text-secondary">No facility is free for this slot.</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
+
+{% if results is not none %}
+<section class="card-ch mb-4">
+  <div class="card-head">
+    <h3>{{ icon('check-circle', 17) }} {{ results|length }} free for {{ on|date('%a %d %b %Y') }}, {{ start }}–{{ end }}</h3>
+    <span class="sub">NOT EXISTS subquery over confirmed bookings · facilities under maintenance are excluded</span>
+  </div>
+  {% if results %}
+  <div class="table-wrap"><table class="table-ch">
+    <thead><tr><th>Facility</th><th>Type</th><th>Building</th><th class="num">Capacity</th><th></th></tr></thead>
+    <tbody>{% for f in results %}
+      <tr><td><a class="primary" href="{{ url_for('facility_detail', facility_id=f.facility_id) }}">{{ f.facility_name }}</a></td>
+          <td>{{ f.type_name }}</td><td>{{ f.building }}</td><td class="num">{{ f.capacity }}</td>
+          <td class="act"><a class="btn btn-brand btn-sm" href="{{ url_for('new_booking', facility_id=f.facility_id, date=on.isoformat(), start=start, end=end) }}">Book this slot</a></td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}{{ m.empty('Nothing is free for that slot', 'Try another time, a smaller capacity or a different facility type.', 'calendar') }}{% endif %}
+</section>
 {% endif %}
+
+<section class="card-ch">
+  <div class="card-head">
+    <h3>{{ icon('grid', 17) }} Day timeline · {{ on|date('%A %d %B %Y') }} <span class="sub">{{ on|rel_day }}</span></h3>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="legend me-2"><span><i class="c-confirmed"></i>Confirmed</span><span><i class="c-completed"></i>Completed</span><span><i class="c-cancelled"></i>Cancelled</span></div>
+      <a class="btn btn-ghost btn-sm" href="{{ url_with(date=prev_day.isoformat()) }}">‹ Prev</a>
+      <a class="btn btn-ghost btn-sm" href="{{ url_with(date=today.isoformat()) }}">Today</a>
+      <a class="btn btn-ghost btn-sm" href="{{ url_with(date=next_day.isoformat()) }}">Next ›</a>
+    </div>
+  </div>
+  {% if rows %}
+  <div class="timeline-scroll"><div class="timeline">
+    <div class="tl-head"><div class="tl-label small-caps">Facility</div>
+      <div class="tl-hours">{% for h in range(8, 21, 2) %}<span style="left: {{ (h - 7) / 14 * 100 }}%">{{ '%02d'|format(h) }}:00</span>{% endfor %}</div></div>
+    {% for r in rows %}
+    <div class="tl-row{{ ' closed' if r.status != 'AVAILABLE' }}">
+      <div class="tl-label"><a class="primary" href="{{ url_for('facility_detail', facility_id=r.facility_id) }}">{{ r.facility_name }}</a>
+        <span class="sub">{{ r.type_name }} · {{ r.capacity }} seats</span></div>
+      <div class="tl-track">
+        {% if r.status == 'AVAILABLE' %}
+          {% for h in hours %}<a class="tl-slot" style="left: {{ (h - 7) / 14 * 100 }}%; width: {{ 100 / 14 }}%"
+             href="{{ url_for('new_booking', facility_id=r.facility_id, date=on.isoformat(), start='%02d:00'|format(h), end='%02d:00'|format(h + 1)) }}">+ {{ '%02d'|format(h) }}:00</a>{% endfor %}
+        {% else %}<span class="tl-closed-note">{{ icon('wrench', 14) }} Under maintenance – not bookable</span>{% endif %}
+        {% for b in r['items'] %}
+          <a class="tl-block st-{{ b.status }}" style="left: {{ b.left }}%; width: {{ b.width }}%" href="{{ url_for('booking_detail', booking_id=b.booking_id) }}"
+             title="{{ b.booking_id|ref }} · {{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.purpose }} · {{ b.booked_by }} ({{ b.status|lower }})"><b>{{ b.purpose or 'Booking' }}</b><span>{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></a>
+        {% endfor %}
+        {% if now_pct is not none %}<div class="tl-now" style="left: {{ now_pct }}%" title="Now"></div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div></div>
+  {% else %}{{ m.empty('No facilities match these filters', '', 'building') }}{% endif %}
+</section>
 {% endblock %}

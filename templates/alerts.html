@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Alerts{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Alerts</span>{% endblock %}
+{% block content %}
+{% call m.page_head('Alerts', 'Things that need attention, computed from the database each time this page loads.') %}{% endcall %}
+
+<div class="kpis">
+  {{ m.kpi('Booking conflicts', conflicts|length, 'alert', 'rose', sub='confirmed bookings in closed facilities', alert=conflicts|length > 0) }}
+  {{ m.kpi('Overdue returns', overdue|length, 'clock', 'rose', sub='issued items past due', alert=overdue|length > 0) }}
+  {{ m.kpi('Low or out of stock', low|length, 'box', 'amber', sub='25% or less of units left') }}
+  {{ m.kpi('Open maintenance', maint|length, 'wrench', 'amber', sub='reported or in progress') }}
+</div>
+
+<div class="grid-2">
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('alert', 17) }} Booking conflicts</h3><span class="sub">facility status ≠ AVAILABLE</span></div>
+    {% if conflicts %}<ul class="alert-list">{% for c in conflicts %}
+      <li><span class="a-icon tone-danger">{{ icon('calendar', 15) }}</span>
+        <div class="a-main"><div class="a-title">{{ c.booking_id|ref }} · {{ c.facility_name }}</div>
+          <div class="a-sub">{{ c.booking_date|date('%a %d %b') }}, {{ c.start_time|hm }}–{{ c.end_time|hm }} · {{ c.booked_by }} · facility {{ c.facility_status|replace('_', ' ')|lower }}</div></div>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('booking_detail', booking_id=c.booking_id) }}">Review</a></li>
+    {% endfor %}</ul>{% else %}{{ m.empty('No conflicts', 'No upcoming confirmed booking is in a facility that is closed.', 'check-circle') }}{% endif %}
+  </section>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('clock', 17) }} Overdue returns</h3><a class="btn btn-ghost btn-sm" href="{{ url_for('issues', view='overdue') }}">Manage</a></div>
+    {% if overdue %}<ul class="alert-list">{% for o in overdue %}
+      <li><span class="a-icon tone-danger">{{ icon('box', 15) }}</span>
+        <div class="a-main"><div class="a-title">{{ o.equipment_name }}</div><div class="a-sub">{{ o.issued_to }} ({{ o.user_type|lower }}) · due {{ o.due_date|date('%d %b') }} · {{ o.due_date|rel_day }}</div></div>
+        <form method="post" action="{{ url_for('return_equipment', issue_id=o.issue_id) }}" class="inline-form" data-confirm="Record {{ o.equipment_name }} as returned today?" data-confirm-title="Return item" data-confirm-ok="Mark returned">
+          <input type="hidden" name="next" value="{{ url_for('alerts') }}"><button class="btn btn-ghost btn-sm" type="submit">Return</button></form></li>
+    {% endfor %}</ul>{% else %}{{ m.empty('Nothing overdue', '', 'check-circle') }}{% endif %}
+  </section>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('box', 17) }} Low and out of stock</h3><a class="btn btn-ghost btn-sm" href="{{ url_for('equipment', stock='low') }}">Inventory</a></div>
+    {% if low %}<ul class="alert-list">{% for e in low %}
+      <li><span class="a-icon {{ 'tone-danger' if e.available_qty == 0 else 'tone-warning' }}">{{ icon('box', 15) }}</span>
+        <div class="a-main"><div class="a-title">{{ e.equipment_name }}</div><div class="a-sub">{{ e.facility_name }}</div></div>
+        <div style="width: 40%">{{ m.stock(e.available_qty, e.quantity) }}</div></li>
+    {% endfor %}</ul>{% else %}{{ m.empty('Stock levels are healthy', '', 'check-circle') }}{% endif %}
+  </section>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('wrench', 17) }} Open maintenance</h3><a class="btn btn-ghost btn-sm" href="{{ url_for('maintenance') }}">Manage</a></div>
+    {% if maint %}<ul class="alert-list">{% for r in maint %}
+      <li><span class="a-icon tone-warning">{{ icon('wrench', 15) }}</span>
+        <div class="a-main"><div class="a-title">{{ r.facility_name }}: {{ r.issue_description }}</div><div class="a-sub">{{ r.handled_by }} · reported {{ r.reported_date|rel_day }}</div></div>
+        {{ r.status|badge }}</li>
+    {% endfor %}</ul>{% else %}{{ m.empty('No open requests', '', 'check-circle') }}{% endif %}
+  </section>
+</div>
+{% endblock %}

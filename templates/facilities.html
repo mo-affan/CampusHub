@@ -1,46 +1,97 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m with context %}
 {% block title %}Facilities{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Facilities</span>{% endblock %}
 {% block content %}
-<h1 class="page">Facilities</h1>
-<p class="lead-sm">Search by type, building and minimum capacity; add new facilities (capacity must be &gt; 0, names are unique).</p>
-<form class="card p-3 mb-4" method="get">
-  <div class="row g-3 align-items-end">
-    <div class="col-md-3"><label class="form-label">Type</label>
-      <select class="form-select" name="type"><option value="">Any</option>
-      {% for t in types %}<option value="{{ t.facility_type_id }}" {{ 'selected' if sel.type == t.facility_type_id|string }}>{{ t.type_name }}</option>{% endfor %}</select></div>
-    <div class="col-md-3"><label class="form-label">Building</label>
-      <select class="form-select" name="building"><option value="">Any</option>
-      {% for b in buildings %}<option {{ 'selected' if sel.building == b.building }}>{{ b.building }}</option>{% endfor %}</select></div>
-    <div class="col-md-3"><label class="form-label">Min. capacity</label><input class="form-control" type="number" name="min_cap" value="{{ sel.min_cap }}"></div>
-    <div class="col-md-3"><button class="btn btn-teal w-100">Search</button></div>
-  </div>
-</form>
-<div class="row g-4">
-  <div class="col-lg-8">
-    <div class="card">
-      <table class="table mb-0 align-middle">
-        <thead><tr><th>Facility</th><th>Type</th><th>Building</th><th class="text-end">Capacity</th><th>Admin</th><th>Status</th></tr></thead>
-        <tbody>
-        {% for f in rows %}
-          <tr><td>{{ f.facility_name }}</td><td>{{ f.type_name }}</td><td>{{ f.building }}</td><td class="text-end">{{ f.capacity }}</td>
-              <td>{{ f.admin_name }}</td><td><span class="badge badge-{{ f.status }}">{{ f.status }}</span></td></tr>
-        {% else %}
-          <tr><td colspan="6" class="text-secondary">No facility matches.</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  <div class="col-lg-4">
-    <form class="card p-3" method="post">
-      <div class="card-title fw-bold" style="color:var(--navy)">Add facility</div>
-      <div class="mb-2"><input class="form-control" name="facility_name" placeholder="Name" required></div>
-      <div class="mb-2"><select class="form-select" name="facility_type_id">{% for t in types %}<option value="{{ t.facility_type_id }}">{{ t.type_name }}</option>{% endfor %}</select></div>
-      <div class="mb-2"><select class="form-select" name="admin_id">{% for a in admins %}<option value="{{ a.admin_id }}">{{ a.name }}</option>{% endfor %}</select></div>
-      <div class="mb-2"><input class="form-control" name="building" placeholder="Building" required></div>
-      <div class="mb-3"><input class="form-control" type="number" name="capacity" placeholder="Capacity" required></div>
-      <button class="btn btn-teal">Add</button>
-    </form>
-  </div>
+{% call m.page_head('Facilities', 'Every room, lab, hall and court on campus, with its live status and upcoming demand.') %}
+  <a class="btn btn-ghost" href="{{ url_for('availability') }}">{{ icon('clock', 16) }} Availability timeline</a>
+  <a class="btn btn-brand" href="#add-facility" onclick="document.getElementById('add-facility').open = true">{{ icon('plus', 16) }} Add facility</a>
+{% endcall %}
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a class="chip" href="{{ url_with(status=None, page=None) }}">All · {{ counts.values()|sum }}</a>
+  <a class="chip" href="{{ url_with(status='AVAILABLE', page=None) }}">{{ status_badge('AVAILABLE') }} {{ counts.get('AVAILABLE', 0) }}</a>
+  <a class="chip" href="{{ url_with(status='UNDER_MAINTENANCE', page=None) }}">{{ status_badge('UNDER_MAINTENANCE') }} {{ counts.get('UNDER_MAINTENANCE', 0) }}</a>
+  <a class="chip" href="{{ url_with(status='INACTIVE', page=None) }}">{{ status_badge('INACTIVE') }} {{ counts.get('INACTIVE', 0) }}</a>
 </div>
+
+<form class="filters" method="get">
+  <div class="f-item wide"><label for="q">Search</label>
+    <input class="form-control" id="q" name="q" value="{{ filters.q }}" placeholder="Name or building"></div>
+  <div class="f-item"><label for="type">Type</label>
+    <select class="form-select" id="type" name="type"><option value="">All types</option>
+      {% for t in types %}<option value="{{ t.facility_type_id }}" {{ 'selected' if filters.type == t.facility_type_id }}>{{ t.type_name }}</option>{% endfor %}
+    </select></div>
+  <div class="f-item"><label for="building">Building</label>
+    <select class="form-select" id="building" name="building"><option value="">All buildings</option>
+      {% for b in buildings %}<option {{ 'selected' if filters.building == b }}>{{ b }}</option>{% endfor %}
+    </select></div>
+  <div class="f-item narrow"><label for="min_cap">Min. capacity</label>
+    <input class="form-control" id="min_cap" name="min_cap" type="number" min="1" value="{{ filters.min_cap or '' }}"></div>
+  <div class="f-item"><label for="status">Status</label>
+    <select class="form-select" id="status" name="status"><option value="">Any status</option>
+      {% for s in ['AVAILABLE', 'UNDER_MAINTENANCE', 'INACTIVE'] %}<option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ s|replace('_', ' ')|title }}</option>{% endfor %}
+    </select></div>
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>{{ icon('search', 15) }} Apply</button>
+    <a class="btn btn-ghost" href="{{ url_for('facilities') }}">Reset</a></div>
+</form>
+
+<section class="card-ch">
+  {% if page.items %}
+  <div class="table-wrap">
+    <table class="table-ch">
+      <thead><tr>
+        {{ m.sort_th('Facility', 'name', sort) }}{{ m.sort_th('Type', 'type', sort) }}{{ m.sort_th('Capacity', 'capacity', sort, 'num') }}
+        {{ m.sort_th('Status', 'status', sort) }}{{ m.sort_th('Upcoming', 'upcoming', sort, 'num') }}<th class="num">Equipment</th>
+        <th>Managed by</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for f in page.items %}
+        <tr data-href="{{ url_for('facility_detail', facility_id=f.facility_id) }}">
+          <td><a class="primary" href="{{ url_for('facility_detail', facility_id=f.facility_id) }}">{{ f.facility_name }}</a>
+              <span class="sub">{{ icon('map-pin', 12) }} {{ f.building }}</span></td>
+          <td>{{ f.type_name }}</td>
+          <td class="num">{{ f.capacity }}</td>
+          <td>{{ f.status|badge }}</td>
+          <td class="num">{{ f.upcoming }}</td>
+          <td class="num">{{ f.equipment_count }}</td>
+          <td>{{ f.admin_name }}</td>
+          <td class="act">
+            {% if f.status == 'AVAILABLE' %}<a class="btn btn-soft btn-sm" href="{{ url_for('new_booking', facility_id=f.facility_id) }}">Book</a>{% endif %}
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('facility_detail', facility_id=f.facility_id) }}">Details</a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    {% call m.empty('No facilities match these filters', 'Try a different type, building or capacity.', 'building') %}
+      <a class="btn btn-ghost btn-sm" href="{{ url_for('facilities') }}">Clear filters</a>
+    {% endcall %}
+  {% endif %}
+  {{ m.pager(page, 'facilities') }}
+</section>
+
+<details class="card-ch mt-4" id="add-facility">
+  <summary class="card-head" style="cursor:pointer; list-style:none"><h3>{{ icon('plus', 17) }} Add a facility</h3>
+    <span class="sub">UNIQUE name · CHECK capacity &gt; 0 · type and admin are foreign keys</span></summary>
+  <form class="card-body-ch" method="post">
+    <div class="row g-3">
+      <div class="col-md-4"><label class="form-label" for="facility_name">Name</label>
+        <input class="form-control" id="facility_name" name="facility_name" maxlength="100" required placeholder="e.g. SJT 801 Robotics Lab"></div>
+      <div class="col-md-2"><label class="form-label" for="ftype">Type</label>
+        <select class="form-select" id="ftype" name="facility_type_id" required>{% for t in types %}<option value="{{ t.facility_type_id }}">{{ t.type_name }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label" for="fbuilding">Building</label>
+        <input class="form-control" id="fbuilding" name="building" maxlength="50" required list="building-list">
+        <datalist id="building-list">{% for b in buildings %}<option value="{{ b }}">{% endfor %}</datalist></div>
+      <div class="col-md-1"><label class="form-label" for="fcap">Capacity</label>
+        <input class="form-control" id="fcap" name="capacity" type="number" required></div>
+      <div class="col-md-3"><label class="form-label" for="fadmin">Managed by</label>
+        <select class="form-select" id="fadmin" name="admin_id" required>{% for a in admins %}<option value="{{ a.admin_id }}">{{ a.name }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="mt-3"><button class="btn btn-brand" type="submit">{{ icon('plus', 15) }} Add facility</button></div>
+  </form>
+</details>
 {% endblock %}
