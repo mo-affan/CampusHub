@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h1 class="page">Reports</h1>
+<p class="lead-sm">Generated live from SQL views and report queries.</p>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card h-100"><div class="card-header">Most frequently booked facilities (top 5)</div>
+      <table class="table mb-0"><thead><tr><th>Facility</th><th>Type</th><th class="text-end">Bookings</th><th class="text-end">Hours</th></tr></thead><tbody>
+      {% for r in top %}<tr><td>{{ r.facility_name }}</td><td>{{ r.type_name }}</td><td class="text-end">{{ r.total_bookings }}</td><td class="text-end">{{ r.hours_booked }}</td></tr>{% endfor %}
+      </tbody></table></div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100"><div class="card-header">Bookings by department</div>
+      <table class="table mb-0"><thead><tr><th>Department</th><th class="text-end">Bookings</th></tr></thead><tbody>
+      {% for r in dept %}<tr><td>{{ r.department_name }}</td><td class="text-end">{{ r.bookings }}</td></tr>{% endfor %}
+      </tbody></table></div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card h-100"><div class="card-header">Monthly booking statistics</div>
+      <table class="table mb-0"><thead><tr><th>Month</th><th class="text-end">Total</th><th class="text-end">Cancelled</th></tr></thead><tbody>
+      {% for r in monthly %}<tr><td>{{ r.month }}</td><td class="text-end">{{ r.total }}</td><td class="text-end">{{ r.cancelled }}</td></tr>{% endfor %}
+      </tbody></table></div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card h-100"><div class="card-header">Facilities with repeated maintenance</div>
+      <table class="table mb-0"><thead><tr><th>Facility</th><th class="text-end">Requests</th></tr></thead><tbody>
+      {% for r in repeat %}<tr><td>{{ r.facility_name }}</td><td class="text-end">{{ r.maintenance_count }}</td></tr>{% else %}<tr><td colspan="2" class="text-secondary">None</td></tr>{% endfor %}
+      </tbody></table></div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card h-100"><div class="card-header">Facilities with capacity above 100</div>
+      <table class="table mb-0"><thead><tr><th>Facility</th><th class="text-end">Capacity</th></tr></thead><tbody>
+      {% for r in big %}<tr><td>{{ r.facility_name }}</td><td class="text-end">{{ r.capacity }}</td></tr>{% endfor %}
+      </tbody></table></div>
+  </div>
+  <div class="col-12">
+    <div class="card"><div class="card-header">Overdue equipment</div>
+      <table class="table mb-0"><thead><tr><th>#</th><th>Equipment</th><th>Issued to</th><th>Due</th></tr></thead><tbody>
+      {% for r in overdue %}<tr><td>{{ r.issue_id }}</td><td>{{ r.equipment_name }}</td><td>{{ r.issued_to }} ({{ r.user_type }})</td><td>{{ r.due_date.strftime('%d %b %Y') }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Nothing overdue.</td></tr>{% endfor %}
+      </tbody></table></div>
+  </div>
+</div>
+{% endblock %}

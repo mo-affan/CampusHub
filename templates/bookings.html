@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Bookings{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-end">
+  <div><h1 class="page">Bookings</h1><p class="lead-sm">Booking history; cancelled bookings are kept, never deleted.</p></div>
+  <a class="btn btn-teal mb-3" href="{{ url_for('new_booking') }}">+ New booking</a>
+</div>
+<div class="mb-3">
+  {% for s in ['', 'CONFIRMED', 'COMPLETED', 'CANCELLED'] %}
+    <a class="btn btn-sm {{ 'btn-dark' if status == s else 'btn-outline-secondary' }}" href="{{ url_for('bookings', status=s) if s else url_for('bookings') }}">{{ s.title() if s else 'All' }}</a>
+  {% endfor %}
+</div>
+<div class="card">
+  <div class="table-responsive">
+  <table class="table mb-0 align-middle">
+    <thead><tr><th>#</th><th>Facility</th><th>Date</th><th>Time</th><th>Booked by</th><th>Purpose</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for b in rows %}
+      <tr><td>{{ b.booking_id }}</td><td>{{ b.facility_name }}</td><td>{{ b.booking_date.strftime('%d %b %Y') }}</td>
+          <td>{{ b.start_time|hm }}–{{ b.end_time|hm }}</td><td>{{ b.booked_by }} <span class="text-secondary small">({{ b.user_type }})</span></td>
+          <td>{{ b.purpose }}</td><td><span class="badge badge-{{ b.status }}">{{ b.status }}</span></td>
+          <td class="text-end">{% if b.status == 'CONFIRMED' %}
+            <form method="post" action="{{ url_for('cancel_booking', booking_id=b.booking_id) }}"><button class="btn btn-sm btn-outline-danger">Cancel</button></form>
+          {% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

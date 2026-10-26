@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}New booking{% endblock %}
+{% block content %}
+<h1 class="page">New booking</h1>
+<p class="lead-sm">Calls the stored procedure <code>sp_create_booking</code>; MySQL rejects overlapping slots and facilities under maintenance.</p>
+<form class="card p-4" method="post" style="max-width:760px">
+  <div class="mb-3"><label class="form-label">Facility</label>
+    <select class="form-select" name="facility_id" required>
+      {% for f in facilities %}<option value="{{ f.facility_id }}" {{ 'selected' if pre.facility_id == f.facility_id|string }}>{{ f.facility_name }} (capacity {{ f.capacity }}){{ ' – under maintenance' if f.status == 'UNDER_MAINTENANCE' }}</option>{% endfor %}
+    </select></div>
+  <div class="mb-3"><label class="form-label d-block">Booked by</label>
+    <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="user_type" value="student" id="ut-s" checked><label class="form-check-label" for="ut-s">Student</label></div>
+    <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="user_type" value="faculty" id="ut-f"><label class="form-check-label" for="ut-f">Faculty</label></div>
+  </div>
+  <div class="mb-3 pick-student"><select class="form-select" name="student_id">
+    {% for s in students %}<option value="{{ s.student_id }}">{{ s.name }} ({{ s.registration_no }})</option>{% endfor %}</select></div>
+  <div class="mb-3 pick-faculty d-none"><select class="form-select" name="faculty_id">
+    {% for f in faculty %}<option value="{{ f.faculty_id }}">{{ f.name }} ({{ f.employee_code }})</option>{% endfor %}</select></div>
+  <div class="row g-3 mb-3">
+    <div class="col-md-4"><label class="form-label">Date</label><input class="form-control" type="date" name="date" value="{{ pre.date }}" required></div>
+    <div class="col-md-4"><label class="form-label">Start time</label><input class="form-control" type="time" name="start" value="{{ pre.start }}" required></div>
+    <div class="col-md-4"><label class="form-label">End time</label><input class="form-control" type="time" name="end" value="{{ pre.end }}" required></div>
+  </div>
+  <div class="mb-3"><label class="form-label">Purpose</label><input class="form-control" name="purpose" maxlength="200" placeholder="e.g. Club workshop"></div>
+  <div><button class="btn btn-teal">Confirm booking</button> <a class="btn btn-link" href="{{ url_for('bookings') }}">Back</a></div>
+</form>
+{% endblock %}

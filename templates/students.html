@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Students{% endblock %}
+{% block content %}
+<h1 class="page">Students</h1>
+<p class="lead-sm">Registration numbers and e-mails are UNIQUE; every student belongs to a department (foreign key).</p>
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>Reg. no.</th><th>Name</th><th>E-mail</th><th>Department</th></tr></thead>
+        <tbody>
+        {% for s in rows %}
+          <tr><td>{{ s.registration_no }}</td><td>{{ s.name }}</td><td>{{ s.email }}</td><td>{{ s.department_name }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <form class="card p-3" method="post">
+      <div class="card-title fw-bold" style="color:var(--navy)">Add student</div>
+      <div class="mb-2"><input class="form-control" name="registration_no" placeholder="Registration no." maxlength="15" required></div>
+      <div class="mb-2"><input class="form-control" name="name" placeholder="Name" required></div>
+      <div class="mb-2"><input class="form-control" type="email" name="email" placeholder="E-mail" required></div>
+      <div class="mb-2"><input class="form-control" name="phone" placeholder="Phone (optional)"></div>
+      <div class="mb-3"><select class="form-select" name="department_id">{% for d in depts %}<option value="{{ d.department_id }}">{{ d.department_name }}</option>{% endfor %}</select></div>
+      <button class="btn btn-teal">Add</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

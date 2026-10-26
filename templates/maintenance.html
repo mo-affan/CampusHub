@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Maintenance{% endblock %}
+{% block content %}
+<h1 class="page">Maintenance</h1>
+<p class="lead-sm">Logging a request takes the facility out of service (trigger T4); completing the last open request reopens it (trigger T5).</p>
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">History (<code>vw_maintenance_history</code>)</div>
+      <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>#</th><th>Facility</th><th>Issue</th><th>Handled by</th><th>Reported</th><th>Days</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for m in rows %}
+          <tr><td>{{ m.maintenance_id }}</td><td>{{ m.facility_name }}</td><td>{{ m.issue_description }}</td><td>{{ m.handled_by }}</td>
+              <td>{{ m.reported_date.strftime('%d %b') }}</td><td>{{ m.days_open }}</td>
+              <td><span class="badge badge-{{ m.status }}">{{ m.status }}</span></td>
+              <td class="text-end">{% if m.status != 'COMPLETED' %}
+                <form method="post" action="{{ url_for('complete_maintenance', mid=m.maintenance_id) }}"><button class="btn btn-sm btn-outline-success">Mark completed</button></form>{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <form class="card p-3" method="post">
+      <div class="card-title fw-bold" style="color:var(--navy)">Report a fault</div>
+      <div class="mb-2"><label class="form-label">Facility</label>
+        <select class="form-select" name="facility_id">
+        {% for f in facilities %}<option value="{{ f.facility_id }}">{{ f.facility_name }}{{ ' (under maintenance)' if f.status == 'UNDER_MAINTENANCE' }}</option>{% endfor %}</select></div>
+      <div class="mb-2"><label class="form-label">Assigned admin</label>
+        <select class="form-select" name="admin_id">
+        {% for a in admins %}<option value="{{ a.admin_id }}">{{ a.name }}</option>{% endfor %}</select></div>
+      <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="3" maxlength="255" required></textarea></div>
+      <button class="btn btn-teal">Log request</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

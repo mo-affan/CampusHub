@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Facilities{% endblock %}
+{% block content %}
+<h1 class="page">Facilities</h1>
+<p class="lead-sm">Search by type, building and minimum capacity; add new facilities (capacity must be &gt; 0, names are unique).</p>
+<form class="card p-3 mb-4" method="get">
+  <div class="row g-3 align-items-end">
+    <div class="col-md-3"><label class="form-label">Type</label>
+      <select class="form-select" name="type"><option value="">Any</option>
+      {% for t in types %}<option value="{{ t.facility_type_id }}" {{ 'selected' if sel.type == t.facility_type_id|string }}>{{ t.type_name }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Building</label>
+      <select class="form-select" name="building"><option value="">Any</option>
+      {% for b in buildings %}<option {{ 'selected' if sel.building == b.building }}>{{ b.building }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Min. capacity</label><input class="form-control" type="number" name="min_cap" value="{{ sel.min_cap }}"></div>
+    <div class="col-md-3"><button class="btn btn-teal w-100">Search</button></div>
+  </div>
+</form>
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>Facility</th><th>Type</th><th>Building</th><th class="text-end">Capacity</th><th>Admin</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for f in rows %}
+          <tr><td>{{ f.facility_name }}</td><td>{{ f.type_name }}</td><td>{{ f.building }}</td><td class="text-end">{{ f.capacity }}</td>
+              <td>{{ f.admin_name }}</td><td><span class="badge badge-{{ f.status }}">{{ f.status }}</span></td></tr>
+        {% else %}
+          <tr><td colspan="6" class="text-secondary">No facility matches.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <form class="card p-3" method="post">
+      <div class="card-title fw-bold" style="color:var(--navy)">Add facility</div>
+      <div class="mb-2"><input class="form-control" name="facility_name" placeholder="Name" required></div>
+      <div class="mb-2"><select class="form-select" name="facility_type_id">{% for t in types %}<option value="{{ t.facility_type_id }}">{{ t.type_name }}</option>{% endfor %}</select></div>
+      <div class="mb-2"><select class="form-select" name="admin_id">{% for a in admins %}<option value="{{ a.admin_id }}">{{ a.name }}</option>{% endfor %}</select></div>
+      <div class="mb-2"><input class="form-control" name="building" placeholder="Building" required></div>
+      <div class="mb-3"><input class="form-control" type="number" name="capacity" placeholder="Capacity" required></div>
+      <button class="btn btn-teal">Add</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

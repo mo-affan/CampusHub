@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Inventory{% endblock %}
+{% block content %}
+<h1 class="page">Equipment inventory</h1>
+<p class="lead-sm">Stock is updated by triggers when items are issued or returned (view <code>vw_equipment_availability</code>).</p>
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">Stock by facility</div>
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>Equipment</th><th>Facility</th><th class="text-end">Total</th><th class="text-end">Available</th><th class="text-end">Issued</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for e in stock %}
+          <tr><td>{{ e.equipment_name }}</td><td>{{ e.facility_name }}</td><td class="text-end">{{ e.quantity }}</td>
+              <td class="text-end fw-bold">{{ e.available_qty }}</td><td class="text-end">{{ e.issued_qty }}</td>
+              <td><span class="badge badge-{{ e.availability_status }}">{{ e.availability_status }}</span></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <form class="card p-3" method="post">
+      <div class="card-title fw-bold" style="color:var(--navy)">Issue equipment</div>
+      <div class="mb-2"><label class="form-label">Item</label>
+        <select class="form-select" name="equipment_id">
+        {% for e in stock %}<option value="{{ e.equipment_id }}">{{ e.equipment_name }} – {{ e.available_qty }} left</option>{% endfor %}</select></div>
+      <div class="mb-2">
+        <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="user_type" value="student" id="iu-s" checked><label class="form-check-label" for="iu-s">Student</label></div>
+        <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="user_type" value="faculty" id="iu-f"><label class="form-check-label" for="iu-f">Faculty</label></div>
+      </div>
+      <div class="mb-2 pick-student"><select class="form-select" name="student_id">
+        {% for s in students %}<option value="{{ s.student_id }}">{{ s.name }} ({{ s.registration_no }})</option>{% endfor %}</select></div>
+      <div class="mb-2 pick-faculty d-none"><select class="form-select" name="faculty_id">
+        {% for f in faculty %}<option value="{{ f.faculty_id }}">{{ f.name }}</option>{% endfor %}</select></div>
+      <div class="mb-3"><label class="form-label">Loan period (days)</label><input class="form-control" type="number" name="days" value="7" min="1" max="60"></div>
+      <button class="btn btn-teal">Issue</button>
+    </form>
+  </div>
+</div>
+<div class="card mt-4">
+  <div class="card-header">Currently issued (<code>vw_current_issues</code>)</div>
+  <table class="table mb-0 align-middle">
+    <thead><tr><th>#</th><th>Equipment</th><th>Issued to</th><th>Issued</th><th>Due</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for i in issues %}
+      <tr><td>{{ i.issue_id }}</td><td>{{ i.equipment_name }}</td><td>{{ i.issued_to }} <span class="text-secondary small">({{ i.user_type }})</span></td>
+          <td>{{ i.issue_date.strftime('%d %b') }}</td><td>{{ i.due_date.strftime('%d %b') }}</td>
+          <td><span class="badge badge-{{ i.due_status|replace(' ', '_') }}">{{ i.due_status }}</span></td>
+          <td class="text-end"><form method="post" action="{{ url_for('return_equipment', issue_id=i.issue_id) }}"><button class="btn btn-sm btn-outline-success">Return</button></form></td></tr>
+    {% else %}
+      <tr><td colspan="7" class="text-secondary">Nothing is issued right now.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1 class="page">Dashboard</h1>
+<p class="lead-sm">Live summary of campus facilities, bookings, equipment and maintenance · {{ today.strftime('%d %b %Y') }}</p>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3"><div class="card stat p-3"><div class="num">{{ stats.available }}<span class="fs-5 text-secondary">/{{ stats.total_fac }}</span></div><div class="lbl">Facilities available now</div></div></div>
+  <div class="col-6 col-md-3"><div class="card stat p-3"><div class="num">{{ stats.today }}</div><div class="lbl">Bookings today</div></div></div>
+  <div class="col-6 col-md-3"><div class="card stat p-3"><div class="num">{{ stats.issued }}</div><div class="lbl">Items issued ({{ stats.overdue }} overdue)</div></div></div>
+  <div class="col-6 col-md-3"><div class="card stat p-3"><div class="num">{{ stats.open_maint }}</div><div class="lbl">Open maintenance requests</div></div></div>
+</div>
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">Upcoming bookings
+    <a class="btn btn-sm btn-teal" href="{{ url_for('availability') }}">Find a free facility</a></div>
+  <div class="table-responsive">
+  <table class="table mb-0 align-middle">
+    <thead><tr><th>#</th><th>Facility</th><th>Date</th><th>Time</th><th>Booked by</th><th>Purpose</th></tr></thead>
+    <tbody>
+    {% for b in upcoming %}
+      <tr><td>{{ b.booking_id }}</td><td>{{ b.facility_name }}</td><td>{{ b.booking_date.strftime('%d %b %Y') }}</td>
+          <td>{{ b.start_time|hm }}–{{ b.end_time|hm }}</td><td>{{ b.booked_by }}</td><td>{{ b.purpose }}</td></tr>
+    {% else %}
+      <tr><td colspan="6" class="text-secondary">No upcoming bookings.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

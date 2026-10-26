@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CampusHub{% endblock %} · CampusHub</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root { --navy:#0C2340; --teal:#0E7C86; --gold:#F2A900; }
+    body { background:#F5F7F9; color:#2B3645; }
+    .navbar { background:var(--navy); }
+    .navbar-brand { font-weight:700; color:#fff !important; letter-spacing:.3px; }
+    .navbar-brand .dot { display:inline-block; width:12px; height:12px; border-radius:50%; background:var(--gold); margin-right:8px; }
+    .navbar .nav-link { color:#C9D6E3 !important; }
+    .navbar .nav-link.active { color:#fff !important; border-bottom:2px solid var(--gold); }
+    h1.page { font-size:1.6rem; font-weight:700; color:var(--navy); margin:1.4rem 0 .2rem; }
+    .lead-sm { color:#5A6778; margin-bottom:1.2rem; }
+    .card { border:1px solid #D8E0E8; border-radius:12px; }
+    .card-header { background:#fff; font-weight:700; color:var(--navy); }
+    .stat .num { font-size:2.2rem; font-weight:700; color:var(--teal); line-height:1; }
+    .stat .lbl { color:#5A6778; }
+    .table th { color:var(--navy); font-weight:700; background:#EEF3F7; }
+    .btn-teal { background:var(--teal); color:#fff; }
+    .btn-teal:hover { background:#0b6870; color:#fff; }
+    .badge-AVAILABLE, .badge-CONFIRMED, .badge-RETURNED, .badge-COMPLETED, .badge-ON_TIME { background:#1E8C5A; }
+    .badge-UNDER_MAINTENANCE, .badge-IN_PROGRESS, .badge-REPORTED { background:#C77700; }
+    .badge-ALL_ISSUED, .badge-OVERDUE, .badge-CANCELLED, .badge-INACTIVE { background:#C0392B; }
+    .badge-ISSUED, .badge-UNDER_REPAIR { background:#0E7C86; }
+    footer { color:#7A8797; font-size:.85rem; }
+  </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark">
+  <div class="container">
+    <a class="navbar-brand" href="{{ url_for('dashboard') }}"><span class="dot"></span>CampusHub</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav"><span class="navbar-toggler-icon"></span></button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav ms-auto">
+        {% set links = [('dashboard','Dashboard'),('availability','Availability'),('bookings','Bookings'),('equipment','Inventory'),('maintenance','Maintenance'),('facilities','Facilities'),('students','Students'),('reports','Reports')] %}
+        {% for ep, label in links %}
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == ep or (ep == 'bookings' and request.endpoint == 'new_booking') }}" href="{{ url_for(ep) }}">{{ label }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</nav>
+<main class="container pb-5">
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}
+      <div class="alert alert-{{ cat }} mt-3 mb-0 alert-dismissible fade show" role="alert">
+        <strong>{{ 'Success:' if cat == 'success' else ('Rejected by database:' if cat == 'danger' else 'Note:') }}</strong> {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="container pb-4">CampusHub · BCSE302P Database Systems Lab · MySQL 8.0 + Flask</footer>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // Show the student or faculty picker depending on the selected user type
+  document.querySelectorAll('[name=user_type]').forEach(function (r) {
+    r.addEventListener('change', function () {
+      var form = r.closest('form');
+      form.querySelector('.pick-student').classList.toggle('d-none', r.value !== 'student');
+      form.querySelector('.pick-faculty').classList.toggle('d-none', r.value !== 'faculty');
+    });
+  });
+</script>
+</body>
+</html>
