@@ -803,8 +803,14 @@ def global_search(text, today, limit=8):
 def table_counts():
     tables = ["department", "student", "faculty", "admin", "facility_type", "facility", "booking", "equipment",
               "equipment_issue", "maintenance"]
-    sql = " UNION ALL ".join(f"SELECT '{t}' AS table_name, COUNT(*) AS row_count FROM {t}" for t in tables)
-    return db.query(sql)
+    def counts(names):
+        return db.query(" UNION ALL ".join(f"SELECT '{t}' AS table_name, COUNT(*) AS row_count FROM {t}" for t in names))
+    try:
+        return counts(tables + ["user_account"])
+    except db.Error as e:
+        if getattr(e, "errno", None) != 1146:      # user_account missing until sql/07 is run
+            raise
+        return counts(tables)
 
 
 def schema_objects():
