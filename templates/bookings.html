@@ -3,10 +3,10 @@
 {% block title %}Bookings{% endblock %}
 {% block crumbs %}{{ icon('chevron-right', 12) }} <span>Bookings</span>{% endblock %}
 {% block content %}
-{% call m.page_head('Bookings', 'Every booking is created by the stored procedure sp_create_booking, so overlaps and closed facilities are refused by MySQL itself.') %}
-  {% if counts.needs_closing %}
+{% call m.page_head('Bookings' if is_admin else 'My bookings', 'Every booking is created by the stored procedure sp_create_booking, so overlaps and closed facilities are refused by MySQL itself.' if is_admin else 'Bookings you have made. Cancel one to free the slot for others.') %}
+  {% if is_admin and counts.needs_closing %}
   <form method="post" action="{{ url_for('complete_past_bookings') }}" class="inline-form"
-        data-confirm="Mark all {{ counts.needs_closing|int }} confirmed bookings dated before today as COMPLETED?" data-confirm-title="Close past bookings" data-confirm-ok="Mark completed">
+        data-confirm="Mark all {{ counts.needs_closing|int }} confirmed bookings dated before today as COMPLETED?" data-confirm-title="Close past bookings" data-confirm-ok="Mark completed">{{ csrf_field() }}
     <button class="btn btn-ghost" type="submit">{{ icon('check', 16) }} Close {{ counts.needs_closing|int }} past booking{{ 's' if counts.needs_closing != 1 }}</button>
   </form>
   {% endif %}
@@ -26,7 +26,7 @@
 <form class="filters" method="get">
   <input type="hidden" name="view" value="{{ view }}">
   <div class="f-item wide"><label for="q">Search</label>
-    <input class="form-control" id="q" name="q" value="{{ filters.q }}" placeholder="Reference (BK-000123), facility, person or purpose"></div>
+    <input class="form-control" id="q" name="q" value="{{ filters.q }}" placeholder="{{ 'Reference (BK-000123), facility, person or purpose' if is_admin else 'Reference (BK-000123), facility or purpose' }}"></div>
   <div class="f-item"><label for="type">Facility type</label>
     <select class="form-select" id="type" name="type"><option value="">All types</option>
       {% for t in types %}<option value="{{ t.facility_type_id }}" {{ 'selected' if filters.type == t.facility_type_id }}>{{ t.type_name }}</option>{% endfor %}</select></div>
@@ -57,7 +57,7 @@
           {% if b.status == 'CONFIRMED' %}
           <form method="post" action="{{ url_for('cancel_booking', booking_id=b.booking_id) }}" class="inline-form"
                 data-confirm="Cancel {{ b.booking_id|ref }} for {{ b.facility_name }} on {{ b.booking_date|date('%d %b') }}, {{ b.start_time|hm }}–{{ b.end_time|hm }}? The slot becomes free for others."
-                data-confirm-title="Cancel this booking?" data-confirm-ok="Cancel booking" data-confirm-tone="danger">
+                data-confirm-title="Cancel this booking?" data-confirm-ok="Cancel booking" data-confirm-tone="danger">{{ csrf_field() }}
             <input type="hidden" name="next" value="{{ request.full_path }}">
             <button class="btn btn-danger-soft btn-sm" type="submit">Cancel</button>
           </form>

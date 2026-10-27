@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Accounts{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Accounts</span>{% endblock %}
+{% block content %}
+{% call m.page_head('User accounts', 'Create logins, reset forgotten passwords and disable access. New and reset passwords are temporary: the person must choose their own at the next sign-in.') %}{% endcall %}
+
+<div class="kpis">
+  {{ m.kpi('Accounts', summary.total|int, 'key', 'slate', sub=(summary.students|int) ~ ' students · ' ~ (summary.faculty|int) ~ ' faculty · ' ~ (summary.admins|int) ~ ' admins') }}
+  {{ m.kpi('Active', summary.active|int, 'check-circle', 'teal', sub='can sign in') }}
+  {{ m.kpi('Temporary password', summary.must_change|int, 'lock', 'amber', sub='must set their own at next sign-in') }}
+  {{ m.kpi('Disabled', summary.disabled|int, 'power', 'rose', sub='cannot sign in') }}
+</div>
+
+<nav class="tabs" aria-label="Account types">
+  {% for key, label in [('STUDENT', 'Students'), ('FACULTY', 'Faculty'), ('ADMIN', 'Administrators')] %}
+  <a class="tab{{ ' active' if tab == key }}" href="{{ url_for('accounts', tab=key) }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+<form class="filters" method="get">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <div class="f-item wide"><label for="q">Search</label><input class="form-control" id="q" name="q" value="{{ q }}" placeholder="Name, e-mail or {{ {'STUDENT': 'registration number', 'FACULTY': 'employee code', 'ADMIN': 'role'}[tab] }}"></div>
+  <div class="f-actions"><button class="btn btn-brand" type="submit" data-no-loading>Apply</button><a class="btn btn-ghost" href="{{ url_for('accounts', tab=tab) }}">Reset</a></div>
+</form>
+
+<section class="card-ch">
+  {% if page.items %}
+  <div class="table-wrap"><table class="table-ch">
+    <thead><tr><th>Name</th><th>{{ {'STUDENT': 'Registration no.', 'FACULTY': 'Employee code', 'ADMIN': 'Role'}[tab] }}</th><th>Login</th><th>Last sign-in</th><th></th></tr></thead>
+    <tbody>{% for p in page.items %}
+      {% set locked = p.locked %}
+      {% set me = current_user.account_id == p.account_id %}
+      <tr>
+        <td><span class="primary">{{ p.name }}</span><span class="sub">{{ p.email }}</span></td>
+        <td class="nowrap">{{ p.code|replace('_', ' ')|title if tab == 'ADMIN' else p.code }}</td>
+        <td>
+          {% if not p.account_id %}<span class="badge-soft tone-neutral">No login</span>
+          {% elif not p.is_active %}<span class="badge-soft tone-danger">Disabled</span>
+          {% elif locked %}<span class="badge-soft tone-danger">Locked</span>
+          {% elif p.must_change_password %}<span class="badge-soft tone-warning">Temporary password</span>
+          {% else %}<span class="badge-soft tone-success">Active</span>{% endif %}
+          {% if me %}<span class="sub">this is you</span>{% endif %}
+        </td>
+        <td class="nowrap">{{ p.last_login_at|datetime if p.last_login_at else '—' }}</td>
+        <td class="act">
+          {% if not p.account_id %}
+          <form method="post" action="{{ url_for('account_create') }}" class="inline-form">{{ csrf_field() }}
+            <input type="hidden" name="role" value="{{ tab }}"><input type="hidden" name="person_id" value="{{ p.person_id }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-soft btn-sm" type="submit">{{ icon('plus', 14) }} Create login</button></form>
+          {% elif not me %}
+            {% if locked %}
+            <form method="post" action="{{ url_for('account_unlock', account_id=p.account_id) }}" class="inline-form">{{ csrf_field() }}
+              <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-ghost btn-sm" type="submit">Unlock</button></form>
+            {% endif %}
+            <form method="post" action="{{ url_for('account_reset', account_id=p.account_id) }}" class="inline-form"
+                  data-confirm="Give {{ p.name }} a new temporary password? Their current password stops working and they are signed out everywhere."
+                  data-confirm-title="Reset password" data-confirm-ok="Reset password">{{ csrf_field() }}
+              <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-ghost btn-sm" type="submit">Reset password</button></form>
+            <form method="post" action="{{ url_for('account_active', account_id=p.account_id) }}" class="inline-form"
+                  {% if p.is_active %}data-confirm="Disable {{ p.name }}'s login? They are signed out immediately. Their bookings and history stay in the database." data-confirm-title="Disable account" data-confirm-ok="Disable" data-confirm-tone="danger"{% endif %}>{{ csrf_field() }}
+              <input type="hidden" name="active" value="{{ '0' if p.is_active else '1' }}"><input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn {{ 'btn-danger-soft' if p.is_active else 'btn-soft' }} btn-sm" type="submit">{{ 'Disable' if p.is_active else 'Enable' }}</button></form>
+          {% else %}
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('change_password') }}">Change password</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}{{ m.empty('Nobody matches', 'Try a different search.', 'users') }}{% endif %}
+  {{ m.pager(page, 'people') }}
+</section>
+
+<div class="note info mt-4">{{ icon('shield', 16) }}<div>Passwords are stored as salted scrypt hashes in <code>user_account</code>; nobody, including administrators, can read them.
+  A login is linked to exactly one student, faculty member or administrator (CHECK <code>chk_account_owner</code>, UNIQUE per person, foreign keys with RESTRICT).</div></div>
+{% endblock %}

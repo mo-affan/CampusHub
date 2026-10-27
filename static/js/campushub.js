@@ -140,4 +140,35 @@
     });
     load();
   }
+
+  /* sign-in page: label follows the chosen role; show / hide password */
+  var roleTabs = document.querySelectorAll(".role-tabs input[name=role]");
+  var loginLabel = document.getElementById("login-label");
+  var loginInput = document.getElementById("login");
+  var hints = { STUDENT: ["Registration number or e-mail", "e.g. 24BCE1101"],
+                FACULTY: ["Employee code or e-mail", "e.g. F1001"],
+                ADMIN:   ["E-mail", "e.g. karthik.admin@campushub.edu"] };
+  function syncRole() {
+    var r = (document.querySelector(".role-tabs input[name=role]:checked") || {}).value;
+    if (r && hints[r] && loginLabel && loginInput) { loginLabel.textContent = hints[r][0]; loginInput.placeholder = hints[r][1]; }
+  }
+  roleTabs.forEach(function (r) { r.addEventListener("change", syncRole); });
+  syncRole();
+  document.querySelectorAll("[data-pw-toggle]").forEach(function (b) {
+    b.hidden = false;
+    b.addEventListener("click", function () {
+      var input = document.getElementById(b.getAttribute("data-pw-toggle"));
+      var show = input.type === "password";
+      input.type = show ? "text" : "password";
+      b.textContent = show ? "Hide" : "Show";
+      b.setAttribute("aria-pressed", show ? "true" : "false");
+    });
+  });
+
+  /* close the profile menu when clicking elsewhere */
+  document.addEventListener("click", function (e) {
+    document.querySelectorAll("details.profile-menu[open]").forEach(function (d) {
+      if (!d.contains(e.target)) d.removeAttribute("open");
+    });
+  });
 })();

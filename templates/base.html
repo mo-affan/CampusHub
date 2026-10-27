@@ -10,6 +10,7 @@
 </head>
 <body>
 {% set ep = request.endpoint %}
+{% if is_admin %}
 {% set nav = [
   ('Overview', [
     ('dashboard', 'Dashboard', 'dashboard', ['dashboard']),
@@ -28,9 +29,26 @@
     ('students', 'People', 'users', ['students']),
   ]),
   ('System', [
+    ('accounts', 'Accounts', 'key', ['accounts']),
     ('status', 'Database status', 'database', ['status']),
   ]),
 ] %}
+{% else %}
+{% set nav = [
+  ('My CampusHub', [
+    ('dashboard', 'Home', 'dashboard', ['dashboard']),
+    ('bookings', 'My bookings', 'calendar-check', ['bookings', 'new_booking', 'booking_detail']),
+    ('my_loans', 'My equipment', 'box', ['my_loans']),
+  ]),
+  ('Campus', [
+    ('availability', 'Availability', 'clock', ['availability']),
+    ('facilities', 'Facilities', 'building', ['facilities', 'facility_detail']),
+  ] + ([('report_fault', 'Report a fault', 'wrench', ['report_fault'])] if current_user and current_user.role == 'FACULTY' else [])),
+  ('Account', [
+    ('change_password', 'Change password', 'lock', ['change_password']),
+  ]),
+] %}
+{% endif %}
 <div class="app">
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
     <a class="brand" href="{{ url_for('dashboard') }}">
@@ -50,7 +68,7 @@
     {% endfor %}
     <div class="sidebar-foot">
       BCSE302P · Database Systems Lab<br>
-      <a href="{{ url_for('status') }}">MySQL connection &amp; schema</a>
+      {% if is_admin %}<a href="{{ url_for('status') }}">MySQL connection &amp; schema</a>{% else %}Signed in as {{ role_label|lower }}{% endif %}
     </div>
   </aside>
 
@@ -64,16 +82,29 @@
         </nav>
         <h1>{% block heading %}{{ self.title() }}{% endblock %}</h1>
       </div>
+      {% if is_admin %}
       <form class="top-search" action="{{ url_for('search') }}" method="get" role="search">
         {{ icon('search', 16) }}
         <input id="global-search" name="q" type="search" placeholder="Search facilities, bookings, equipment…" value="{{ request.args.get('q', '') if ep == 'search' else '' }}" aria-label="Search">
         <kbd>/</kbd>
       </form>
       <a class="icon-btn" href="{{ url_for('alerts') }}" aria-label="Alerts" title="Alerts">{{ icon('bell', 18) }}{% if alert_total %}<span class="dot">{{ alert_total }}</span>{% endif %}</a>
-      <div class="profile" title="CampusHub has no login yet - see README, Future work">
-        <span class="avatar">LA</span>
-        <span class="profile-text"><span class="profile-name">Lab Administrator</span><br><span class="profile-role">Local console · no login</span></span>
-      </div>
+      {% else %}<div class="topbar-spacer"></div>{% endif %}
+      {% if current_user %}
+      <details class="profile-menu">
+        <summary class="profile" aria-label="Account menu">
+          <span class="avatar">{{ (current_user.name.split()|map('first')|join(''))[:2]|upper }}</span>
+          <span class="profile-text"><span class="profile-name">{{ current_user.name }}</span><br><span class="profile-role">{{ role_label }}{% if current_user.person_code %} · {{ current_user.person_code }}{% endif %}</span></span>
+        </summary>
+        <div class="profile-pop">
+          <div class="pp-head"><b>{{ current_user.name }}</b><span>{{ current_user.email }}</span></div>
+          <a href="{{ url_for('change_password') }}">{{ icon('lock', 15) }} Change password</a>
+          <form method="post" action="{{ url_for('logout') }}">{{ csrf_field() }}
+            <button type="submit">{{ icon('log-out', 15) }} Sign out</button>
+          </form>
+        </div>
+      </details>
+      {% endif %}
     </header>
 
     <main class="content">

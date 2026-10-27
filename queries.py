@@ -264,7 +264,7 @@ def facility_equipment(facility_id):
 def facility_bookings(facility_id, start, end, include_cancelled=True):
     status_sql = "" if include_cancelled else " AND b.status <> 'CANCELLED'"
     return db.query(f"""SELECT b.booking_id, b.booking_date, b.start_time, b.end_time, b.status, b.purpose,
-                               COALESCE(s.name, fa.name) AS booked_by
+                               b.student_id, b.faculty_id, COALESCE(s.name, fa.name) AS booked_by
                         FROM booking b {PERSON_JOIN.format(a='b')}
                         WHERE b.facility_id = %s AND b.booking_date BETWEEN %s AND %s{status_sql}
                         ORDER BY b.booking_date, b.start_time""", (facility_id, start, end))
@@ -334,7 +334,7 @@ def day_schedule(on_date, type_id=None, building=None):
                               FROM facility f JOIN facility_type ft ON ft.facility_type_id = f.facility_type_id
                               WHERE {' AND '.join(where)} ORDER BY ft.type_name, f.facility_name""", params)
     bookings = db.query(f"""SELECT b.booking_id, b.facility_id, b.start_time, b.end_time, b.status, b.purpose,
-                                   COALESCE(s.name, fa.name) AS booked_by
+                                   b.student_id, b.faculty_id, COALESCE(s.name, fa.name) AS booked_by
                             FROM booking b JOIN facility f ON f.facility_id = b.facility_id
                             {PERSON_JOIN.format(a='b')}
                             WHERE b.booking_date = %s AND {' AND '.join(where)}
@@ -344,7 +344,7 @@ def day_schedule(on_date, type_id=None, building=None):
 
 def bookings_on(facility_id, on_date):
     return db.query(f"""SELECT b.booking_id, b.start_time, b.end_time, b.status, b.purpose,
-                               COALESCE(s.name, fa.name) AS booked_by
+                               b.student_id, b.faculty_id, COALESCE(s.name, fa.name) AS booked_by
                         FROM booking b {PERSON_JOIN.format(a='b')}
                         WHERE b.facility_id = %s AND b.booking_date = %s AND b.status <> 'CANCELLED'
                         ORDER BY b.start_time""", (facility_id, on_date))
@@ -365,18 +365,32 @@ BOOKING_VIEWS = {
 }
 
 
-def booking_view_counts(today):
-    return db.one("""SELECT SUM(status = 'CONFIRMED' AND booking_date >= %s) AS upcoming,
+def owner_clause(owner, alias):
+    """SQL + params limiting rows to one person. owner = (student_id, faculty_id) or None (= everyone)."""
+    if not owner:
+        return "1 = 1", []
+    student_id, faculty_id = owner
+    if student_id:
+        return f"{alias}.student_id = %s", [student_id]
+    return f"{alias}.faculty_id = %s", [faculty_id]
+
+
+def booking_view_counts(today, owner=None):
+    cond, params = owner_clause(owner, "b")
+    return db.one(f"""SELECT SUM(status = 'CONFIRMED' AND booking_date >= %s) AS upcoming,
                             SUM(status = 'CONFIRMED' AND booking_date <  %s) AS needs_closing,
                             SUM(status = 'COMPLETED') AS completed,
                             SUM(status = 'CANCELLED') AS cancelled,
                             COUNT(*) AS total
-                     FROM booking""", (today, today))
+                     FROM booking b WHERE {cond}""", [today, today] + params)
 
 
-def list_bookings(view, filters, sort, page, per_page, today):
+def list_bookings(view, filters, sort, page, per_page, today, owner=None):
     cond, needs_today = BOOKING_VIEWS.get(view, BOOKING_VIEWS["upcoming"])
     where, params = [cond], ([today] if needs_today else [])
+    own_sql, own_params = owner_clause(owner, "b")
+    where.append(own_sql)
+    params += own_params
     if filters.get("q"):
         bid = booking_id_from(filters["q"])
         clause = ("(f.facility_name LIKE %s ESCAPE '!' OR b.purpose LIKE %s ESCAPE '!' "
@@ -507,16 +521,20 @@ ISSUE_VIEWS = {
 }
 
 
-def issue_view_counts(today):
-    return db.one("""SELECT SUM(status = 'ISSUED') AS current,
+def issue_view_counts(today, owner=None):
+    cond, params = owner_clause(owner, "ei")
+    return db.one(f"""SELECT SUM(status = 'ISSUED') AS current,
                             SUM(status = 'ISSUED' AND due_date < %s) AS overdue,
                             SUM(status = 'RETURNED') AS returned, COUNT(*) AS total
-                     FROM equipment_issue""", (today,))
+                     FROM equipment_issue ei WHERE {cond}""", [today] + params)
 
 
-def list_issues(view, q, page, per_page, today):
+def list_issues(view, q, page, per_page, today, owner=None):
     cond, needs_today = ISSUE_VIEWS.get(view, ISSUE_VIEWS["current"])
     where, params = [cond], ([today] if needs_today else [])
+    own_sql, own_params = owner_clause(owner, "ei")
+    where.append(own_sql)
+    params += own_params
     if q:
         where.append("(e.equipment_name LIKE %s ESCAPE '!' OR s.name LIKE %s ESCAPE '!' "
                      "OR fa.name LIKE %s ESCAPE '!' OR s.registration_no LIKE %s ESCAPE '!')")
@@ -807,6 +825,132 @@ def schema_objects():
                                WHERE TABLE_SCHEMA = DATABASE() AND INDEX_NAME LIKE 'idx%%'
                                GROUP BY TABLE_NAME, INDEX_NAME ORDER BY TABLE_NAME, INDEX_NAME"""),
     }
+
+
+# ============================================================ accounts (login)
+ACCOUNT_SELECT = """
+    SELECT ua.account_id, ua.role, ua.student_id, ua.faculty_id, ua.admin_id, ua.password_hash,
+           ua.must_change_password, ua.is_active, ua.failed_attempts, ua.locked_until, ua.last_login_at,
+           COALESCE(s.name, fa.name, a.name)    AS name,
+           COALESCE(s.email, fa.email, a.email) AS email,
+           COALESCE(s.registration_no, fa.employee_code) AS person_code,
+           a.role AS admin_role
+    FROM user_account ua
+    LEFT JOIN student s  ON s.student_id  = ua.student_id
+    LEFT JOIN faculty fa ON fa.faculty_id = ua.faculty_id
+    LEFT JOIN admin a    ON a.admin_id    = ua.admin_id"""
+
+# login identifier per role: e-mail for everyone, plus registration no. / employee code
+LOGIN_MATCH = {
+    "STUDENT": "ua.role = 'STUDENT' AND (s.email = %s OR s.registration_no = %s)",
+    "FACULTY": "ua.role = 'FACULTY' AND (fa.email = %s OR fa.employee_code = %s)",
+    "ADMIN":   "ua.role = 'ADMIN' AND (a.email = %s OR a.email = %s)",
+}
+PERSON_COL = {"STUDENT": "student_id", "FACULTY": "faculty_id", "ADMIN": "admin_id"}
+
+
+def find_account(role, login):
+    if role not in LOGIN_MATCH:
+        return None
+    return db.one(f"{ACCOUNT_SELECT} WHERE {LOGIN_MATCH[role]}", (login, login))
+
+
+def find_account_by_person(role, person_id):
+    col = PERSON_COL[role]
+    return db.one(f"{ACCOUNT_SELECT} WHERE ua.{col} = %s", (person_id,))
+
+
+def get_account(account_id):
+    return db.one(f"{ACCOUNT_SELECT} WHERE ua.account_id = %s", (account_id,))
+
+
+def account_count():
+    return db.scalar("SELECT COUNT(*) FROM user_account") or 0
+
+
+def record_failed_login(account_id, max_failed, lock_until):
+    # locked_until is assigned first so both assignments see the OLD failed_attempts value
+    return db.execute("""UPDATE user_account
+                         SET locked_until    = IF(failed_attempts + 1 >= %s, %s, locked_until),
+                             failed_attempts = IF(failed_attempts + 1 >= %s, 0, failed_attempts + 1)
+                         WHERE account_id = %s""", (max_failed, lock_until, max_failed, account_id))
+
+
+def record_successful_login(account_id, now):
+    return db.execute("""UPDATE user_account SET failed_attempts = 0, locked_until = NULL, last_login_at = %s
+                         WHERE account_id = %s""", (now, account_id))
+
+
+def create_account(role, person_id, password_hash, must_change, now):
+    col = PERSON_COL[role]          # column name from a fixed dict, never from the request
+    return db.execute(f"""INSERT INTO user_account (role, {col}, password_hash, must_change_password,
+                                                    password_changed_at)
+                          VALUES (%s, %s, %s, %s, %s)""", (role, person_id, password_hash, int(must_change), now))
+
+
+def set_password(account_id, password_hash, must_change, now):
+    return db.execute("""UPDATE user_account
+                         SET password_hash = %s, must_change_password = %s, password_changed_at = %s,
+                             failed_attempts = 0, locked_until = NULL
+                         WHERE account_id = %s""", (password_hash, int(must_change), now, account_id))
+
+
+def set_account_active(account_id, active):
+    return db.execute("UPDATE user_account SET is_active = %s WHERE account_id = %s", (int(active), account_id))
+
+
+def unlock_account(account_id):
+    return db.execute("UPDATE user_account SET failed_attempts = 0, locked_until = NULL WHERE account_id = %s",
+                      (account_id,))
+
+
+ACCOUNT_TABS = {
+    "STUDENT": ("student", "p.student_id", "p.registration_no", "ua.student_id = p.student_id"),
+    "FACULTY": ("faculty", "p.faculty_id", "p.employee_code", "ua.faculty_id = p.faculty_id"),
+    "ADMIN":   ("admin",   "p.admin_id",   "p.role",           "ua.admin_id = p.admin_id"),
+}
+
+
+def list_people_accounts(role, q, page, per_page):
+    table, pid, code, join = ACCOUNT_TABS[role]
+    where, params = ["1 = 1"], []
+    if q:
+        where.append(f"(p.name LIKE %s ESCAPE '!' OR p.email LIKE %s ESCAPE '!' OR {code} LIKE %s ESCAPE '!')")
+        params += [like(q)] * 3
+    base = f"""FROM {table} p LEFT JOIN user_account ua ON {join} WHERE {' AND '.join(where)}"""
+    select = f"""SELECT {pid} AS person_id, p.name, p.email, {code} AS code,
+                        ua.account_id, ua.is_active, ua.must_change_password, ua.locked_until, ua.last_login_at
+                 {base} ORDER BY p.name"""
+    return paged(select, f"SELECT COUNT(*) {base}", params, page, per_page)
+
+
+def account_summary():
+    return db.one("""SELECT COUNT(*) AS total, SUM(is_active = 1) AS active, SUM(is_active = 0) AS disabled,
+                            SUM(must_change_password = 1) AS must_change,
+                            SUM(role = 'STUDENT') AS students, SUM(role = 'FACULTY') AS faculty,
+                            SUM(role = 'ADMIN') AS admins
+                     FROM user_account""")
+
+
+def person_exists(role, person_id):
+    table, pid, _code, _join = ACCOUNT_TABS[role]
+    return db.scalar(f"SELECT COUNT(*) FROM {table} p WHERE {pid} = %s", (person_id,)) == 1
+
+
+# ============================================================ personal views (student / faculty)
+def my_home(owner, today):
+    cond, params = owner_clause(owner, "x")
+    return db.one(f"""
+        SELECT (SELECT COUNT(*) FROM booking x WHERE {cond} AND x.status = 'CONFIRMED' AND x.booking_date >= %s) AS upcoming,
+               (SELECT COUNT(*) FROM booking x WHERE {cond} AND x.status = 'CONFIRMED' AND x.booking_date = %s)  AS today,
+               (SELECT COUNT(*) FROM booking x WHERE {cond} AND x.status = 'COMPLETED')                          AS completed,
+               (SELECT COUNT(*) FROM equipment_issue x WHERE {cond} AND x.status = 'ISSUED')                    AS on_loan,
+               (SELECT COUNT(*) FROM equipment_issue x WHERE {cond} AND x.status = 'ISSUED' AND x.due_date < %s) AS overdue
+        """, params + [today] + params + [today] + params + params + params + [today])
+
+
+def facility_admin(facility_id):
+    return db.scalar("SELECT admin_id FROM facility WHERE facility_id = %s", (facility_id,))
 
 
 # ============================================================ review mode

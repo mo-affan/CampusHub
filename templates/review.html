@@ -7,7 +7,7 @@
 
 {% block content %}
 {% macro booking_post(fac_id, on, start, end, purpose, label, tone='btn-ghost', back=True) -%}
-<form method="post" action="{{ url_for('new_booking') }}" class="inline-form">
+<form method="post" action="{{ url_for('new_booking') }}" class="inline-form">{{ csrf_field() }}
   <input type="hidden" name="facility_id" value="{{ fac_id }}"><input type="hidden" name="date" value="{{ on }}">
   <input type="hidden" name="start" value="{{ start }}"><input type="hidden" name="end" value="{{ end }}">
   <input type="hidden" name="purpose" value="{{ purpose }}"><input type="hidden" name="user_type" value="student">
@@ -80,7 +80,7 @@
       <div class="expect">Expect: “No unit of this equipment is available” from trigger <code>trg_issue_before_insert</code>.</div>
       {% else %}<p class="muted">No item is fully issued right now.</p>{% endif %}</div>
     <div class="step-act">{% if d.empty_item and d.student %}
-      <form method="post" action="{{ url_for('equipment') }}" class="inline-form">
+      <form method="post" action="{{ url_for('equipment') }}" class="inline-form">{{ csrf_field() }}
         <input type="hidden" name="equipment_id" value="{{ d.empty_item.equipment_id }}"><input type="hidden" name="user_type" value="student">
         <input type="hidden" name="student_id" value="{{ d.student.student_id }}"><input type="hidden" name="days" value="3">
         <input type="hidden" name="next" value="{{ url_for('review') }}"><button class="btn btn-ghost btn-sm" type="submit">Run</button></form>{% endif %}</div></div>
@@ -98,7 +98,7 @@
       <div class="expect">Expect: “This item is not currently issued” from <code>sp_return_equipment</code>; stock is not increased twice.</div>
       {% else %}<p class="muted">No returned issue on record yet.</p>{% endif %}</div>
     <div class="step-act">{% if d.returned_issue %}
-      <form method="post" action="{{ url_for('return_equipment', issue_id=d.returned_issue.issue_id) }}" class="inline-form">
+      <form method="post" action="{{ url_for('return_equipment', issue_id=d.returned_issue.issue_id) }}" class="inline-form">{{ csrf_field() }}
         <input type="hidden" name="next" value="{{ url_for('review') }}"><button class="btn btn-ghost btn-sm" type="submit">Run</button></form>{% endif %}</div></div>
 
   <div class="step"><div class="step-no">11</div>

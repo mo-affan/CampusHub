@@ -9,14 +9,14 @@
     <p>{{ b.facility_name }} · {{ b.booking_date|date('%A %d %B %Y') }} · {{ b.start_time|hm }}–{{ b.end_time|hm }}</p>
   </div>
   <div class="actions">
-    {% if b.status == 'CONFIRMED' and b.booking_date|date('%Y-%m-%d') <= today.isoformat() %}
-    <form method="post" action="{{ url_for('complete_booking', booking_id=b.booking_id) }}" class="inline-form">
+    {% if is_admin and b.status == 'CONFIRMED' and b.booking_date|date('%Y-%m-%d') <= today.isoformat() %}
+    <form method="post" action="{{ url_for('complete_booking', booking_id=b.booking_id) }}" class="inline-form">{{ csrf_field() }}
       <button class="btn btn-ghost" type="submit">{{ icon('check', 16) }} Mark completed</button></form>
     {% endif %}
     {% if b.status == 'CONFIRMED' %}
     <form method="post" action="{{ url_for('cancel_booking', booking_id=b.booking_id) }}" class="inline-form"
           data-confirm="Cancel {{ b.booking_id|ref }}? The slot becomes free for others. The row is kept as CANCELLED for history."
-          data-confirm-title="Cancel this booking?" data-confirm-ok="Cancel booking" data-confirm-tone="danger">
+          data-confirm-title="Cancel this booking?" data-confirm-ok="Cancel booking" data-confirm-tone="danger">{{ csrf_field() }}
       <button class="btn btn-danger-soft" type="submit">{{ icon('x-circle', 16) }} Cancel booking</button></form>
     {% endif %}
     <a class="btn btn-brand" href="{{ url_for('new_booking', facility_id=b.facility_id) }}">{{ icon('plus', 16) }} Book again</a>
@@ -25,7 +25,7 @@
 
 {% if b.status == 'CONFIRMED' and b.facility_status != 'AVAILABLE' %}
 <div class="note danger mb-3">{{ icon('alert', 17) }}<div><b>Conflict:</b> {{ b.facility_name }} is now {{ b.facility_status|replace('_', ' ')|lower }}.
-  Contact {{ b.booked_by }} or cancel this booking.</div></div>
+  {% if is_admin %}Contact {{ b.booked_by }} or cancel this booking.{% else %}Please cancel this booking or contact the lab administrator.{% endif %}</div></div>
 {% endif %}
 
 <div class="grid-side">
@@ -51,9 +51,9 @@
       {% if same_day %}
       <table class="table-ch compact"><tbody>
         {% for x in same_day %}
-        <tr data-href="{{ url_for('booking_detail', booking_id=x.booking_id) }}">
-          <td class="tabular nowrap"><b>{{ x.start_time|hm }}–{{ x.end_time|hm }}</b></td><td>{{ x.purpose }}<span class="sub">{{ x.booked_by }}</span></td>
-          <td>{{ x.status|badge }}</td><td class="act"><span class="ref">{{ x.booking_id|ref }}</span></td></tr>
+        <tr{% if not x.hidden %} data-href="{{ url_for('booking_detail', booking_id=x.booking_id) }}"{% endif %}>
+          <td class="tabular nowrap"><b>{{ x.start_time|hm }}–{{ x.end_time|hm }}</b></td><td>{{ x.purpose }}{% if not x.hidden %}<span class="sub">{{ x.booked_by }}</span>{% endif %}</td>
+          <td>{{ x.status|badge }}</td><td class="act">{% if not x.hidden %}<span class="ref">{{ x.booking_id|ref }}</span>{% endif %}</td></tr>
         {% endfor %}
       </tbody></table>
       {% else %}{{ m.empty('No other bookings that day', '', 'calendar') }}{% endif %}

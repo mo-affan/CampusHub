@@ -46,13 +46,13 @@
             <td>{{ r.status|badge }}</td>
             <td class="act">
               {% if r.status == 'REPORTED' %}
-              <form method="post" action="{{ url_for('start_maintenance', mid=r.maintenance_id) }}" class="inline-form">
+              <form method="post" action="{{ url_for('start_maintenance', mid=r.maintenance_id) }}" class="inline-form">{{ csrf_field() }}
                 <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-ghost btn-sm" type="submit">Start work</button></form>
               {% endif %}
               {% if r.status != 'COMPLETED' %}
               <form method="post" action="{{ url_for('complete_maintenance', mid=r.maintenance_id) }}" class="inline-form"
                     data-confirm="Mark request #{{ r.maintenance_id }} for {{ r.facility_name }} as completed today? If no other request is open, the facility becomes bookable again (trigger T5)."
-                    data-confirm-title="Complete maintenance" data-confirm-ok="Mark completed">
+                    data-confirm-title="Complete maintenance" data-confirm-ok="Mark completed">{{ csrf_field() }}
                 <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-soft btn-sm" type="submit">Complete</button></form>
               {% endif %}
             </td>
@@ -64,7 +64,7 @@
     </section>
 
 <div class="grid-2 mt-4">
-    <form class="card-ch" id="report-form" method="post">
+    <form class="card-ch" id="report-form" method="post">{{ csrf_field() }}
       <div class="card-head"><h3>{{ icon('wrench', 17) }} Report a fault</h3><span class="sub"><code>sp_record_maintenance</code></span></div>
       <div class="card-body-ch">
         <div class="mb-3"><label class="form-label" for="m-facility">Facility</label>

@@ -9,11 +9,15 @@ explanation of why it refused.
 import csv
 import io
 import os
+import secrets
+import sys
 from datetime import date, datetime, timedelta
 
-from flask import (Flask, Response, abort, flash, jsonify, redirect, render_template, request,
+from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template, request,
                    url_for)
+from werkzeug.security import check_password_hash
 
+import auth as A
 import charts
 import db
 import queries as Q
@@ -21,7 +25,19 @@ import ui
 from dberrors import explain
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "campushub-dev-key-change-me")
+_secret = os.getenv("SECRET_KEY", "")
+if not _secret or _secret in ("change-me", "campushub-dev-key-change-me") or len(_secret) < 16:
+    # Without a fixed key every restart signs everyone out - set SECRET_KEY in .env (see README).
+    _secret = secrets.token_hex(32)
+    print("WARNING: SECRET_KEY is not set in .env - using a temporary key; sessions end when the app restarts.",
+          file=sys.stderr)
+app.config.update(
+    SECRET_KEY=_secret,
+    SESSION_COOKIE_HTTPONLY=True,                     # JavaScript can't read the session cookie
+    SESSION_COOKIE_SAMESITE="Lax",                    # not sent on cross-site POSTs
+    SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE") == "1",   # set to 1 when served over HTTPS
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
 ui.register(app)
 
 PER_PAGE = 12
@@ -57,8 +73,11 @@ def form_int(name):
 
 
 def safe_next(default):
+    """Only same-site paths are accepted as redirect targets (no open redirects)."""
     nxt = request.form.get("next") or request.args.get("next") or ""
-    return nxt if nxt.startswith("/") and not nxt.startswith("//") else default
+    if nxt.startswith("/") and not nxt.startswith("//") and "\\" not in nxt and not nxt.startswith("/login"):
+        return nxt
+    return default
 
 
 def flash_db_error(err):
@@ -76,20 +95,77 @@ def person_from_form():
     return form_int("student_id"), None
 
 
+# ---------------------------------------------------------------- login & access control
+# Deny by default: endpoints listed here are open to students and faculty (with record-level
+# checks inside the views). Everything else is for administrators only.
+PUBLIC_ENDPOINTS = {"login", "static"}
+SELF_SERVICE = {"dashboard", "logout", "change_password", "availability", "api_facility_day", "facilities",
+                "facility_detail", "bookings", "new_booking", "booking_detail", "cancel_booking", "my_loans"}
+FACULTY_EXTRA = {"report_fault"}
+
+
+@app.before_request
+def guard():
+    endpoint = request.endpoint
+    if endpoint is None or endpoint == "static":
+        return None
+    A.load_current_user()
+    if request.method == "POST":
+        A.check_csrf()
+    if endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if g.user is None:
+        nxt = request.full_path.rstrip("?") if request.method == "GET" else None
+        return redirect(url_for("login", next=nxt))
+    if g.user["must_change_password"] and endpoint not in ("change_password", "logout"):
+        return redirect(url_for("change_password"))
+    role = g.user["role"]
+    if role == "ADMIN" or endpoint in SELF_SERVICE or (role == "FACULTY" and endpoint in FACULTY_EXTRA):
+        return None
+    abort(403)
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    if getattr(g, "user", None):
+        resp.headers.setdefault("Cache-Control", "no-store")     # signed-in pages are not cached
+    return resp
+
+
+def mask_others(rows):
+    """Students and faculty see other people's bookings only as 'Booked' (no names, no links)."""
+    if A.is_admin():
+        return rows
+    out = []
+    for r in rows:
+        r = dict(r)
+        if not A.owns(r):
+            r.update(booked_by="Booked", purpose="Booked", hidden=True)
+        out.append(r)
+    return out
+
+
 @app.context_processor
 def inject_globals():
     alert_total = None
     try:
-        alert_total = db.scalar("""
-            SELECT (SELECT COUNT(*) FROM equipment_issue WHERE status = 'ISSUED' AND due_date < %s)
-                 + (SELECT COUNT(*) FROM equipment e WHERE e.available_qty = 0 OR e.available_qty * 4 <= e.quantity)
-                 + (SELECT COUNT(*) FROM maintenance WHERE status <> 'COMPLETED')""", (today(),))
+        if A.is_admin():
+            alert_total = db.scalar("""
+                SELECT (SELECT COUNT(*) FROM equipment_issue WHERE status = 'ISSUED' AND due_date < %s)
+                     + (SELECT COUNT(*) FROM equipment e WHERE e.available_qty = 0 OR e.available_qty * 4 <= e.quantity)
+                     + (SELECT COUNT(*) FROM maintenance WHERE status <> 'COMPLETED')""", (today(),))
     except Exception:          # the error page must render even when MySQL is down
         pass
     # Use a local copy of Bootstrap when present (works offline), otherwise the CDN
     bootstrap_css = (url_for("static", filename="vendor/bootstrap.min.css")
                      if os.path.exists(LOCAL_BOOTSTRAP) else BOOTSTRAP_CDN)
-    return {"today": today(), "alert_total": alert_total, "bootstrap_css": bootstrap_css}
+    user = getattr(g, "user", None)
+    return {"today": today(), "alert_total": alert_total, "bootstrap_css": bootstrap_css,
+            "current_user": user, "is_admin": bool(user and user["role"] == "ADMIN"),
+            "role_label": A.ROLE_LABELS.get(user["role"]) if user else None, "csrf_field": A.csrf_field}
 
 
 @app.errorhandler(db.Error)
@@ -104,10 +180,92 @@ def not_found(_err):
                                                "source": "Not found", "code": 404}), 404
 
 
+@app.errorhandler(403)
+def forbidden(_err):
+    return render_template("error.html", info={"message": "Your account does not have access to this page.",
+                                               "source": "Access denied", "code": 403}), 403
+
+
+@app.errorhandler(400)
+def bad_request(err):
+    msg = ("This form has expired or was not sent from CampusHub. Go back, reload the page and try again."
+           if getattr(err, "description", "") == "csrf" else "The request could not be understood.")
+    return render_template("error.html", info={"message": msg, "source": "Request rejected", "code": 400}), 400
+
+
+# ---------------------------------------------------------------- sign in / out
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if g.user:
+        return redirect(url_for("dashboard"))
+    setup = None
+    try:
+        if Q.account_count() == 0:
+            setup = "no_accounts"
+    except db.Error as e:
+        if getattr(e, "errno", None) != 1146:          # 1146 = table doesn't exist (migration 07 not run)
+            raise
+        setup = "no_table"
+    role = request.form.get("role") or request.args.get("role") or "STUDENT"
+    role = role if role in A.ROLES else "STUDENT"
+    error, status = None, 200
+    if request.method == "POST" and setup != "no_table":
+        acc, error = A.authenticate(role, request.form.get("login", ""), request.form.get("password", ""))
+        if acc:
+            A.start_session(acc)
+            if acc["must_change_password"]:
+                flash({"title": "Choose a new password", "text": "You signed in with a temporary password. "
+                       "Please set your own password to continue."}, "warning")
+                return redirect(url_for("change_password"))
+            return redirect(safe_next(url_for("dashboard")))
+        status = 401
+    return render_template("login.html", setup=setup, role=role, error=error,
+                           login_value=request.form.get("login", ""), nxt=safe_next("")), status
+
+
+@app.post("/logout")
+def logout():
+    A.end_session()
+    flash({"title": "Signed out", "text": "You have been signed out of CampusHub."}, "success")
+    return redirect(url_for("login"))
+
+
+@app.route("/account/password", methods=["GET", "POST"])
+def change_password():
+    errors = []
+    if request.method == "POST":
+        f = request.form
+        current, new, confirm = f.get("current", ""), f.get("new", ""), f.get("confirm", "")
+        acc = Q.get_account(g.user["account_id"])
+        if not check_password_hash(acc["password_hash"], current):
+            errors.append("Your current password is not correct.")
+        elif new != confirm:
+            errors.append("The two new passwords do not match.")
+        elif new == current:
+            errors.append("The new password must be different from the current one.")
+        else:
+            problems = A.password_problems(new)
+            if problems:
+                errors.append("The new password needs " + " and ".join(problems) + ".")
+        if not errors:
+            new_hash = A.hash_password(new)
+            Q.set_password(g.user["account_id"], new_hash, False, datetime.now())
+            A.refresh_fingerprint(new_hash)
+            flash_ok("Your password was changed. Other signed-in sessions of this account were signed out.",
+                     "Password changed")
+            return redirect(url_for("dashboard"))
+    return render_template("change_password.html", errors=errors, min_length=A.MIN_LENGTH), (400 if errors else 200)
+
+
 # ---------------------------------------------------------------- dashboard
 @app.route("/")
 def dashboard():
     t = today()
+    if not A.is_admin():
+        owner = A.owner()
+        return render_template("home.html", k=Q.my_home(owner, t),
+                               upcoming=Q.list_bookings("upcoming", {}, "", 1, 6, t, owner=owner).items,
+                               loans=Q.list_issues("current", "", 1, 6, t, owner=owner).items)
     kpis = Q.dashboard_kpis(t)
 
     week0 = t - timedelta(days=t.weekday())
@@ -146,6 +304,7 @@ def dashboard():
 @app.route("/facilities", methods=["GET", "POST"])
 def facilities():
     if request.method == "POST":
+        A.require_admin()
         f = request.form
         try:
             Q.add_facility(f.get("facility_name", "").strip(), form_int("facility_type_id"), form_int("admin_id"),
@@ -172,7 +331,7 @@ def facility_detail(facility_id):
         abort(404)
     t = today()
     days = [t + timedelta(days=i) for i in range(7)]
-    week = Q.facility_bookings(facility_id, days[0], days[-1], include_cancelled=False)
+    week = mask_others(Q.facility_bookings(facility_id, days[0], days[-1], include_cancelled=False))
     rows = []
     for d in days:
         items = [b for b in week if ui.as_date(b["booking_date"]) == d]
@@ -180,8 +339,8 @@ def facility_detail(facility_id):
     stats = Q.facility_stats(facility_id, t)
     return render_template("facility_detail.html", f=fac, stats=stats, timeline=rows,
                            equipment=Q.facility_equipment(facility_id),
-                           upcoming=[b for b in Q.facility_bookings(facility_id, t, t + timedelta(days=60))
-                                     if b["status"] == "CONFIRMED"][:8],
+                           upcoming=mask_others([b for b in Q.facility_bookings(facility_id, t, t + timedelta(days=60))
+                                                 if b["status"] == "CONFIRMED"][:8]),
                            maintenance=Q.facility_maintenance(facility_id))
 
 
@@ -223,6 +382,7 @@ def availability():
     if start and end:
         results = Q.free_facilities(on, start, end, type_id, min_cap)
     facs, bookings = Q.day_schedule(on, type_id, building)
+    bookings = mask_others(bookings)
     rows = []
     for f in facs:
         if min_cap and f["capacity"] < min_cap:
@@ -246,9 +406,9 @@ def api_facility_day(facility_id):
     fac = Q.get_facility(facility_id)
     if not fac or not on:
         return jsonify({"error": "unknown facility or date"}), 404
-    items = [{"ref": ui.ref(b["booking_id"]), "start": ui.hm(b["start_time"]), "end": ui.hm(b["end_time"]),
+    items = [{"ref": "" if b.get("hidden") else ui.ref(b["booking_id"]), "start": ui.hm(b["start_time"]), "end": ui.hm(b["end_time"]),
               "status": b["status"], "purpose": b["purpose"], "booked_by": b["booked_by"]}
-             for b in Q.bookings_on(facility_id, on)]
+             for b in mask_others(Q.bookings_on(facility_id, on))]
     return jsonify({"facility": fac["facility_name"], "status": fac["status"], "capacity": fac["capacity"],
                     "date": on.isoformat(), "bookings": items})
 
@@ -262,8 +422,10 @@ def bookings():
         view = "upcoming"
     filters = {"q": request.args.get("q", ""), "type": arg_int("type"), "facility": arg_int("facility"),
                "date_from": arg_date("date_from"), "date_to": arg_date("date_to")}
-    page = Q.list_bookings(view, filters, request.args.get("sort", ""), arg_int("page", 1), PER_PAGE, t)
-    return render_template("bookings.html", page=page, view=view, filters=filters, counts=Q.booking_view_counts(t),
+    owner = A.owner()                                   # None for admins = everyone's bookings
+    page = Q.list_bookings(view, filters, request.args.get("sort", ""), arg_int("page", 1), PER_PAGE, t, owner=owner)
+    return render_template("bookings.html", page=page, view=view, filters=filters,
+                           counts=Q.booking_view_counts(t, owner),
                            types=Q.facility_types(), sort=request.args.get("sort", ""))
 
 
@@ -271,7 +433,8 @@ def bookings():
 def new_booking():
     if request.method == "POST":
         f = request.form
-        student_id, faculty_id = person_from_form()
+        # students and faculty always book for themselves; only admins choose the person
+        student_id, faculty_id = person_from_form() if A.is_admin() else A.owner()
         missing = [label for key, label in (("facility_id", "facility"), ("date", "date"), ("start", "start time"),
                                             ("end", "end time")) if not f.get(key)]
         if missing or not (student_id or faculty_id):
@@ -288,7 +451,7 @@ def new_booking():
             return redirect(safe_next(url_for("new_booking", **{k: f.get(k, "") for k in
                                                                ("facility_id", "date", "start", "end")})))
 
-    students, faculty = Q.people()
+    students, faculty = Q.people() if A.is_admin() else ([], [])
     pre = {"facility_id": arg_int("facility_id"), "date": request.args.get("date") or (today() + timedelta(days=1)).isoformat(),
            "start": request.args.get("start", ""), "end": request.args.get("end", "")}
     return render_template("booking_form.html", facilities=Q.facility_options(), students=students,
@@ -298,15 +461,18 @@ def new_booking():
 @app.route("/bookings/<int:booking_id>")
 def booking_detail(booking_id):
     b = Q.get_booking(booking_id)
-    if not b:
+    if not b or not A.owns(b):            # 404, not 403: don't reveal that someone else's booking exists
         abort(404)
-    same_day = [x for x in Q.bookings_on(b["facility_id"], ui.as_date(b["booking_date"]))
-                if x["booking_id"] != booking_id]
+    same_day = mask_others([x for x in Q.bookings_on(b["facility_id"], ui.as_date(b["booking_date"]))
+                            if x["booking_id"] != booking_id])
     return render_template("booking_detail.html", b=b, same_day=same_day)
 
 
 @app.post("/bookings/<int:booking_id>/cancel")
 def cancel_booking(booking_id):
+    b = Q.get_booking(booking_id)
+    if not b or not A.owns(b):
+        abort(404)
     try:
         if Q.cancel_booking(booking_id):
             flash_ok(f"Booking {ui.ref(booking_id)} was cancelled. The slot is free again.", "Booking cancelled")
@@ -562,6 +728,120 @@ def export_report(key):
         writer.writerow([csv_cell(v) for v in row])
     return Response("﻿" + buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename=campushub_{key}_{today().isoformat()}.csv"})
+
+
+# ---------------------------------------------------------------- personal pages (students / faculty)
+@app.route("/my/loans")
+def my_loans():
+    if A.is_admin():
+        return redirect(url_for("issues"))
+    t, owner = today(), A.owner()
+    view = request.args.get("view", "current")
+    if view not in Q.ISSUE_VIEWS:
+        view = "current"
+    page = Q.list_issues(view, "", arg_int("page", 1), PER_PAGE, t, owner=owner)
+    return render_template("my_loans.html", page=page, view=view, counts=Q.issue_view_counts(t, owner))
+
+
+@app.route("/report-fault", methods=["GET", "POST"])
+def report_fault():
+    if A.is_admin():
+        return redirect(url_for("maintenance") + "#report-form")
+    if request.method == "POST":
+        facility_id, desc = form_int("facility_id"), request.form.get("description", "").strip()
+        admin_id = Q.facility_admin(facility_id) if facility_id else None
+        if not desc or not admin_id:
+            flash({"title": "Missing details", "text": "Choose a facility and describe the fault."}, "warning")
+            return redirect(url_for("report_fault"))
+        text = f"{desc[:200]} (reported by {g.user['name']})"[:255]
+        try:
+            mid = Q.record_maintenance(facility_id, admin_id, text)
+            flash_ok(f"Request #{mid} was sent to the facility's administrator. The facility is now marked as under "
+                     "maintenance (trigger T4) until the fault is fixed.", "Fault reported")
+            return redirect(url_for("dashboard"))
+        except db.Error as e:
+            flash_db_error(e)
+            return redirect(url_for("report_fault"))
+    return render_template("report_fault.html", facilities=Q.facility_options(), open_requests=Q.open_maintenance(),
+                           preselect=arg_int("facility"))
+
+
+# ---------------------------------------------------------------- accounts (admin)
+@app.route("/accounts")
+def accounts():
+    role = request.args.get("tab", "STUDENT")
+    role = role if role in Q.ACCOUNT_TABS else "STUDENT"
+    q = request.args.get("q", "")
+    page = Q.list_people_accounts(role, q, arg_int("page", 1), 15)
+    now = datetime.now()
+    for p in page.items:
+        until = A.as_datetime(p["locked_until"])
+        p["locked"] = bool(until and until > now)
+    return render_template("accounts.html", tab=role, q=q, page=page, summary=Q.account_summary())
+
+
+def _temp_password_flash(name, password, title):
+    flash({"title": title, "text": f"Temporary password for {name}: {password}  -  give it to them privately. "
+           "It is shown only once, and they must choose their own password when they first sign in."}, "success")
+
+
+@app.post("/accounts/create")
+def account_create():
+    role, person_id = request.form.get("role", ""), form_int("person_id")
+    back = safe_next(url_for("accounts", tab=role))
+    if role not in Q.ACCOUNT_TABS or not person_id or not Q.person_exists(role, person_id):
+        flash({"title": "Nothing changed", "text": "Choose a person to create a login for."}, "warning")
+        return redirect(back)
+    password = A.temporary_password()
+    try:
+        Q.create_account(role, person_id, A.hash_password(password), True, datetime.now())
+        acc = Q.find_account_by_person(role, person_id)
+        _temp_password_flash(acc["name"], password, "Login created")
+    except db.Error as e:
+        flash_db_error(e)
+    return redirect(back)
+
+
+def _account_or_404(account_id):
+    acc = Q.get_account(account_id)
+    if not acc:
+        abort(404)
+    return acc
+
+
+@app.post("/accounts/<int:account_id>/reset")
+def account_reset(account_id):
+    acc = _account_or_404(account_id)
+    back = safe_next(url_for("accounts", tab=acc["role"]))
+    if account_id == g.user["account_id"]:
+        flash({"title": "Nothing changed", "text": "Use 'Change password' to change your own password."}, "warning")
+        return redirect(back)
+    password = A.temporary_password()
+    Q.set_password(account_id, A.hash_password(password), True, datetime.now())
+    _temp_password_flash(acc["name"], password, "Password reset")
+    return redirect(back)
+
+
+@app.post("/accounts/<int:account_id>/active")
+def account_active(account_id):
+    acc = _account_or_404(account_id)
+    back = safe_next(url_for("accounts", tab=acc["role"]))
+    active = request.form.get("active") == "1"
+    if account_id == g.user["account_id"] and not active:
+        flash({"title": "Nothing changed", "text": "You can't disable the account you are signed in with."}, "warning")
+        return redirect(back)
+    Q.set_account_active(account_id, active)
+    flash_ok(f"{acc['name']} can {'now' if active else 'no longer'} sign in.",
+             "Account enabled" if active else "Account disabled")
+    return redirect(back)
+
+
+@app.post("/accounts/<int:account_id>/unlock")
+def account_unlock(account_id):
+    acc = _account_or_404(account_id)
+    Q.unlock_account(account_id)
+    flash_ok(f"{acc['name']} can try signing in again.", "Account unlocked")
+    return redirect(safe_next(url_for("accounts", tab=acc["role"])))
 
 
 # ---------------------------------------------------------------- search, alerts, status, review

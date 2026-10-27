@@ -1,11 +1,12 @@
 # CampusHub UI & feature upgrade – handover
 
-Branch: `feature/ui-upgrade` (created from `main`; `main` is unchanged). Date: 26 Oct 2026.
+Branch: `feature/ui-upgrade` (created from `main`; `main` is unchanged). Date: 26 Oct 2026; sign-in added 27 Oct 2026.
 
 ## 1. Safety notes
 
-- **No schema change, no migration.** Tables, columns, constraints, indexes, the 5 triggers, 4 procedures and
-  4 views in `sql/01_schema.sql` and `sql/02_logic.sql` are untouched. The new app reads `information_schema` only for the status page.
+- **One additive migration:** `sql/07_add_user_accounts.sql` creates the new `user_account` table, rerun-safe with
+  `CREATE TABLE IF NOT EXISTS`; undo it with `DROP TABLE user_account`. Tables, columns, constraints, indexes, the 5 triggers,
+  4 procedures and 4 views in `sql/01_schema.sql` and `sql/02_logic.sql` are untouched.
 - `sql/01`–`04` are unchanged. Never rerun `01_schema.sql` on a database you want to keep: it drops `campushub`.
 - `05` only inserts (rerun-safe, one transaction, rollback on any error). `06` deletes only rows it can identify as demo data.
 - Every user-supplied value goes through `%s` parameters; sort columns come from whitelists; `LIKE` input is escaped.
@@ -28,11 +29,21 @@ Branch: `feature/ui-upgrade` (created from `main`; `main` is unchanged). Date: 2
 | `sql/tests/verify_rules.sql` | 20 PASS/FAIL rule tests to run on MySQL |
 | `tools/generate_demo_data.py` | Generates and validates 05 and 06 |
 | `docs/screenshots/ui-upgrade/*.png` | 23 screenshots of this version (19 desktop, 4 phone) |
+| `auth.py` | Password hashing (scrypt), sign-in with lockout, sessions, CSRF tokens, role and ownership checks |
+| `manage_accounts.py` | Command-line account tools: `create-admin`, `reset-admin`, `demo-logins`, `status` |
+| `sql/07_add_user_accounts.sql` | Migration: `user_account` table |
+| `templates/login.html`, `change_password.html`, `home.html`, `my_loans.html`, `report_fault.html`, `accounts.html` | Sign-in, password change, student/faculty home, my equipment, fault report, admin Accounts page |
 | `HANDOVER.md` | This file |
 
 **Modified**: `app.py` (routes rewritten around `queries.py`; all old URLs still work), `db.py` (pool helpers, `ping`),
 `.env.example` (optional keys documented), `README.md`, and the templates `base.html`, `dashboard.html`, `facilities.html`,
 `availability.html`, `bookings.html`, `booking_form.html`, `equipment.html`, `maintenance.html`, `reports.html`.
+
+**Changed for sign-in (27 Oct)**: `app.py` (access control in `before_request`, sign-in/out, accounts and personal routes,
+bookings scoped to the signed-in person, other people's bookings masked), `queries.py` (owner filters, account queries),
+`base.html` (menu per role, profile menu with sign-out), every template with a POST form (CSRF field), `bookings.html`,
+`booking_form.html`, `booking_detail.html`, `facility_detail.html`, `facilities.html`, `availability.html`, `error.html` (400/403),
+`ui.py` (3 icons), CSS/JS, `.env.example` (`SECRET_KEY`), `tools/generate_demo_data.py` → `06` also removes demo logins.
 
 **Replaced**: `templates/students.html` → `templates/people.html` (the `/students` URL is the same; it now has students, faculty and admins tabs).
 
@@ -46,7 +57,8 @@ and 4 views, Python copies of the 4 stored procedures, and returns the same MySQ
 `03_sample_data.sql` and `05` were loaded into it from the real files. This proves the Flask code, templates, queries'
 logic and error handling, **not** MySQL itself.
 
-**Result: 43 passed, 0 failed** (Flask test client, full HTTP requests):
+**Result: 76 passed, 0 failed** (Flask test client, full HTTP requests). The 43 tests below ran signed in as an admin;
+the 33 sign-in tests are in the second table.
 
 | # | Test | Result |
 | --- | --- | --- |
@@ -71,6 +83,23 @@ logic and error handling, **not** MySQL itself.
 | R1 | Review mode finds live demo targets | PASS |
 | D1, D2 | `06` leaves exactly the original 03 data; `05` loads again after `06` | PASS |
 
+| # | Sign-in and roles test | Result |
+| --- | --- | --- |
+| A1–A3 | Signed-out visitors are sent to sign-in (also for CSV exports); sign-in page offers Student/Faculty/Admin | PASS |
+| A4–A5b | Wrong password, unknown login and wrong role all get the same generic refusal | PASS |
+| A6–A7 | 5 wrong passwords lock the account (even the right one is refused); admin unlock works | PASS |
+| A8–A8c | POSTs without / with a forged CSRF token are rejected, including the sign-in form | PASS |
+| A9–A10 | Student home page; 11 admin URLs return 403 for a student | PASS |
+| A11–A14 | Student sees only own bookings; can't open/cancel others' (404, row unchanged); forged person ids ignored; can cancel own | PASS |
+| A15–A16 | Others' bookings appear only as "Booked" (timeline, facility page, JSON); no admin buttons; students can't report faults | PASS |
+| A17 | Faculty fault report goes to the facility's admin and closes the facility (T4) | PASS |
+| A18–A21 | Admin creates a login → only a scrypt hash stored; temporary password forces a change; weak password refused | PASS |
+| A22–A24 | Reset and disable sign the user out everywhere; disabled login refused; admin can't disable self | PASS |
+| A25–A29 | No open redirect; session renewed at sign-in; security headers; sign-out ends session and is POST-only | PASS |
+
+Also checked: every page for each role renders (26 role/page combinations); `manage_accounts.py demo-logins` and the
+"run 07 first" message on the sign-in page; 10 new screenshots in `docs/screenshots/sign-in/`.
+
 Also checked: 23 screenshots (desktop 1440 px and phone 390 px) reviewed visually; all templates have balanced tags.
 
 ### 3.2 Not yet run on real MySQL (please do this once)
@@ -81,13 +110,15 @@ Also checked: 23 screenshots (desktop 1440 px and phone 390 px) reviewed visuall
 | `05` on MySQL 26.7 | Run `sql/05_extended_sample_data.sql`. Expect no error; then `SELECT COUNT(*) FROM booking;` grows by 138. Running it a second time prints "Demo data is already loaded". |
 | `06` on MySQL | Optional: run it, check counts return to your previous values, then run `05` again. |
 | App on MySQL | `python app.py`, open every sidebar page, then follow Review mode steps 3–10. Each rejection must show "Rejected by MySQL" with the trigger/constraint name. |
-| Concurrency | Manual two-tab steps in README section 8, step 13. |
+| Concurrency | Manual two-tab steps in README section 9, step 13. |
 | `information_schema` page | `/status` should list 5 triggers, 4 procedures, 4 views. |
+| `07` + sign-in on MySQL | Run `sql/07_add_user_accounts.sql` (message "user_account is ready"), then `python manage_accounts.py create-admin`, `python app.py`, and sign in. Optional: `demo-logins`, then sign in as student `24BCE1101` / faculty `F1001` with `Campus@2026`. |
+| `06` with logins present | Optional: after `demo-logins`, running `06` must still succeed (it deletes demo people's logins first). |
 
 If anything fails, copy the exact error text; the cause will be in MySQL's behaviour (the part the stand-in can't prove).
 
 ## 4. Known limitations
 
-See README section 11: no authentication / roles (the UI says "no login"; not presented as security),
+See README section 12: sign-in has no e-mail reset, two-factor or audit log; runs on Flask's development server,
 `UNDER_REPAIR` not enforced by T2, no recurring bookings, past bookings closed by a button rather than a scheduled event,
 no notifications, static charts.

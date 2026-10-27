@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m with context %}
-{% block title %}{{ 'Not found' if info.code == 404 else 'Database problem' }}{% endblock %}
+{% block title %}{{ {404: 'Not found', 403: 'Access denied', 400: 'Request rejected'}.get(info.code, 'Database problem') }}{% endblock %}
 {% block content %}
 <section class="card-ch" style="max-width: 640px; margin: 40px auto;">
   <div class="card-body-ch text-center py-5">
     <div class="empty-icon mx-auto mb-3" style="width:56px;height:56px;border-radius:14px;display:grid;place-items:center;background:var(--danger-bg);color:var(--danger)">
-      {{ icon('search' if info.code == 404 else 'database', 26) }}</div>
-    <h2 class="h4 mb-2">{{ 'We could not find that' if info.code == 404 else 'The database did not respond as expected' }}</h2>
+      {{ icon({404: 'search', 403: 'lock', 400: 'alert'}.get(info.code, 'database'), 26) }}</div>
+    <h2 class="h4 mb-2">{{ {404: 'We could not find that', 403: 'You don\'t have access to this page', 400: 'That request was rejected'}.get(info.code, 'The database did not respond as expected') }}</h2>
     <p class="muted mb-1">{{ info.message }}</p>
-    {% if info.code and info.code != 404 %}<p class="small muted">{{ info.source }} · MySQL error {{ info.code }}</p>{% endif %}
+    {% if info.code and info.code not in (400, 403, 404) %}<p class="small muted">{{ info.source }} · MySQL error {{ info.code }}</p>{% endif %}
     <div class="d-flex gap-2 justify-content-center mt-4">
       <a class="btn btn-brand" href="{{ url_for('dashboard') }}">Back to dashboard</a>
-      <a class="btn btn-ghost" href="{{ url_for('status') }}">Check database status</a>
+      {% if is_admin %}<a class="btn btn-ghost" href="{{ url_for('status') }}">Check database status</a>{% endif %}
     </div>
   </div>
 </section>

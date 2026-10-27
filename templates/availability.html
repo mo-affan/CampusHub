@@ -65,8 +65,10 @@
              href="{{ url_for('new_booking', facility_id=r.facility_id, date=on.isoformat(), start='%02d:00'|format(h), end='%02d:00'|format(h + 1)) }}">+ {{ '%02d'|format(h) }}:00</a>{% endfor %}
         {% else %}<span class="tl-closed-note">{{ icon('wrench', 14) }} Under maintenance – not bookable</span>{% endif %}
         {% for b in r['items'] %}
-          <a class="tl-block st-{{ b.status }}" style="left: {{ b.left }}%; width: {{ b.width }}%" href="{{ url_for('booking_detail', booking_id=b.booking_id) }}"
-             title="{{ b.booking_id|ref }} · {{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.purpose }} · {{ b.booked_by }} ({{ b.status|lower }})"><b>{{ b.purpose or 'Booking' }}</b><span>{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></a>
+          {% if b.hidden %}<span class="tl-block st-{{ b.status }}" style="left: {{ b.left }}%; width: {{ b.width }}%"
+             title="{{ b.start_time|hm }}–{{ b.end_time|hm }} · booked"><b>Booked</b><span>{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></span>
+          {% else %}<a class="tl-block st-{{ b.status }}" style="left: {{ b.left }}%; width: {{ b.width }}%" href="{{ url_for('booking_detail', booking_id=b.booking_id) }}"
+             title="{{ b.booking_id|ref }} · {{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.purpose }} · {{ b.booked_by }} ({{ b.status|lower }})"><b>{{ b.purpose or 'Booking' }}</b><span>{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></a>{% endif %}
         {% endfor %}
         {% if now_pct is not none %}<div class="tl-now" style="left: {{ now_pct }}%" title="Now"></div>{% endif %}
       </div>

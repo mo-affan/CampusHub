@@ -1,0 +1,85 @@
+{% import "_macros.html" as m with context %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · CampusHub</title>
+  <link rel="stylesheet" href="{{ bootstrap_css }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/campushub.css') }}">
+</head>
+<body>
+<div class="auth-page">
+  <aside class="auth-side">
+    <a class="brand" href="{{ url_for('login') }}">
+      <span class="brand-mark">{{ icon('layers', 19) }}</span>
+      <span><span class="brand-name">CampusHub</span><br><span class="brand-sub">Smart campus management</span></span>
+    </a>
+    <div>
+      <h2>Book rooms, labs and courts without the double bookings.</h2>
+      <p>One MySQL database for facilities, bookings, equipment and maintenance. Every rule is enforced by the database itself.</p>
+      <ul class="auth-points">
+        <li>{{ icon('calendar-check', 17) }}<span><b>Students and faculty</b> book facilities and track their own bookings and borrowed equipment.</span></li>
+        <li>{{ icon('wrench', 17) }}<span><b>Faculty</b> can also report faults, which takes the facility out of service until it is fixed.</span></li>
+        <li>{{ icon('shield', 17) }}<span><b>Administrators</b> manage inventory, maintenance, reports and user accounts.</span></li>
+      </ul>
+    </div>
+    <div class="auth-foot">BCSE302P · Database Systems Lab · VIT</div>
+  </aside>
+
+  <main class="auth-main">
+    <div class="auth-card">
+      <div class="auth-mobile-brand"><span class="brand-mark">{{ icon('layers', 17) }}</span> CampusHub</div>
+      <h1>Sign in</h1>
+      <p class="lead-sub">Choose who you are, then use your CampusHub login.</p>
+
+      {% with msgs = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in msgs %}
+        <div class="note {{ 'success' if cat == 'success' else 'warning' }} auth-alert" role="status">{{ icon('check-circle' if cat == 'success' else 'info', 16) }}
+          <div>{{ msg.text if msg is mapping else msg }}</div></div>
+        {% endfor %}
+      {% endwith %}
+
+      {% if setup == 'no_table' %}
+      <div class="note warning auth-alert">{{ icon('database', 16) }}<div><b>Logins are not set up yet.</b>
+        Run <code>sql/07_add_user_accounts.sql</code> in MySQL Workbench, then create the first administrator with
+        <code>python manage_accounts.py create-admin</code>.</div></div>
+      {% elif setup == 'no_accounts' %}
+      <div class="note info auth-alert">{{ icon('key', 16) }}<div><b>No accounts exist yet.</b>
+        Create the first administrator in a terminal: <code>python manage_accounts.py create-admin</code>.</div></div>
+      {% endif %}
+
+      {% if error %}
+      <div class="note danger auth-alert" role="alert">{{ icon('x-circle', 16) }}<div>{{ error }}</div></div>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('login') }}" novalidate>{{ csrf_field() }}
+        {% if nxt %}<input type="hidden" name="next" value="{{ nxt }}">{% endif %}
+        <div class="role-tabs" role="radiogroup" aria-label="Sign in as">
+          {% for value, label, ic in [('STUDENT', 'Student', 'user'), ('FACULTY', 'Faculty', 'users'), ('ADMIN', 'Admin', 'shield')] %}
+          <input type="radio" name="role" id="role-{{ value|lower }}" value="{{ value }}" {{ 'checked' if role == value }}>
+          <label for="role-{{ value|lower }}">{{ icon(ic, 15) }} {{ label }}</label>
+          {% endfor %}
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="login" id="login-label">Registration number, employee code or e-mail</label>
+          <input class="form-control" id="login" name="login" value="{{ login_value }}" autocomplete="username"
+                 autocapitalize="none" spellcheck="false" maxlength="120" required {{ 'autofocus' if not login_value }}>
+        </div>
+        <div class="mb-4">
+          <label class="form-label" for="password">Password</label>
+          <div class="pw-field">
+            <input class="form-control" type="password" id="password" name="password" autocomplete="current-password"
+                   maxlength="128" required {{ 'autofocus' if login_value }}>
+            <button class="pw-toggle" type="button" data-pw-toggle="password" aria-pressed="false" hidden>Show</button>
+          </div>
+        </div>
+        <button class="btn btn-brand" type="submit">{{ icon('log-out', 16) }} Sign in</button>
+      </form>
+      <p class="auth-help">Forgot your password? Ask a CampusHub administrator to reset it. After 5 wrong attempts the account is locked for 15 minutes.</p>
+    </div>
+  </main>
+</div>
+<script src="{{ url_for('static', filename='js/campushub.js') }}"></script>
+</body>
+</html>

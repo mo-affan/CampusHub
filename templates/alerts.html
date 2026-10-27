@@ -27,7 +27,7 @@
     {% if overdue %}<ul class="alert-list">{% for o in overdue %}
       <li><span class="a-icon tone-danger">{{ icon('box', 15) }}</span>
         <div class="a-main"><div class="a-title">{{ o.equipment_name }}</div><div class="a-sub">{{ o.issued_to }} ({{ o.user_type|lower }}) · due {{ o.due_date|date('%d %b') }} · {{ o.due_date|rel_day }}</div></div>
-        <form method="post" action="{{ url_for('return_equipment', issue_id=o.issue_id) }}" class="inline-form" data-confirm="Record {{ o.equipment_name }} as returned today?" data-confirm-title="Return item" data-confirm-ok="Mark returned">
+        <form method="post" action="{{ url_for('return_equipment', issue_id=o.issue_id) }}" class="inline-form" data-confirm="Record {{ o.equipment_name }} as returned today?" data-confirm-title="Return item" data-confirm-ok="Mark returned">{{ csrf_field() }}
           <input type="hidden" name="next" value="{{ url_for('alerts') }}"><button class="btn btn-ghost btn-sm" type="submit">Return</button></form></li>
     {% endfor %}</ul>{% else %}{{ m.empty('Nothing overdue', '', 'check-circle') }}{% endif %}
   </section>

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}My equipment{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>My equipment</span>{% endblock %}
+{% block content %}
+{% call m.page_head('My equipment', 'Items the lab staff issued to you. Return them to the lab by the due date; the staff record the return.') %}{% endcall %}
+
+<nav class="tabs" aria-label="Loan views">
+  {% for key, label, n in [('current', 'On loan', counts.current), ('overdue', 'Overdue', counts.overdue), ('returned', 'Returned', counts.returned), ('all', 'All', counts.total)] %}
+  <a class="tab{{ ' active' if view == key }}" href="{{ url_for('my_loans', view=key) }}">{{ label }} <span class="count">{{ n|int }}</span></a>
+  {% endfor %}
+</nav>
+
+<section class="card-ch">
+  {% if page.items %}
+  <div class="table-wrap"><table class="table-ch">
+    <thead><tr><th>#</th><th>Item</th><th>Issued</th><th>Due</th><th>Returned</th><th>Status</th></tr></thead>
+    <tbody>{% for l in page.items %}
+      {% set late = l.status == 'ISSUED' and l.due_date|date('%Y-%m-%d') < today.isoformat() %}
+      <tr>
+        <td class="muted">#{{ l.issue_id }}</td>
+        <td><span class="primary">{{ l.equipment_name }}</span><span class="sub">{{ l.facility_name }}</span></td>
+        <td class="nowrap">{{ l.issue_date|date('%d %b %Y') }}</td>
+        <td class="nowrap">{{ l.due_date|date('%d %b %Y') }}{% if l.status == 'ISSUED' %}<span class="sub">{{ l.due_date|rel_day }}</span>{% endif %}</td>
+        <td class="nowrap">{{ l.return_date|date('%d %b %Y') or '—' }}</td>
+        <td>{% if late %}{{ status_badge('OVERDUE') }}{% else %}{{ l.status|badge }}{% endif %}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}{{ m.empty('Nothing here', 'No equipment loans in this view.', 'box') }}{% endif %}
+  {{ m.pager(page, 'loans') }}
+</section>
+{% endblock %}

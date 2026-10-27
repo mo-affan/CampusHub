@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Home{% endblock %}
+{% block heading %}Home{% endblock %}
+{% block content %}
+{% call m.page_head('Hello, ' ~ current_user.name, 'Your bookings and borrowed equipment for ' ~ (today|date('%A, %d %B %Y')) ~ '.') %}
+  <a class="btn btn-ghost" href="{{ url_for('availability') }}">{{ icon('clock', 16) }} Find a free slot</a>
+  <a class="btn btn-brand" href="{{ url_for('new_booking') }}">{{ icon('plus', 16) }} Book a facility</a>
+{% endcall %}
+
+<div class="kpis">
+  {{ m.kpi('Upcoming bookings', k.upcoming|int, 'calendar-check', 'indigo', sub='confirmed, from today', href=url_for('bookings', view='upcoming')) }}
+  {{ m.kpi('Today', k.today|int, 'clock', 'teal', sub='bookings today', href=url_for('bookings', view='upcoming', date_from=today.isoformat(), date_to=today.isoformat())) }}
+  {{ m.kpi('Equipment on loan', k.on_loan|int, 'box', 'slate', sub='not yet returned', href=url_for('my_loans')) }}
+  {{ m.kpi('Overdue', k.overdue|int, 'alert', 'rose', sub='past the due date', alert=k.overdue|int > 0, href=url_for('my_loans', view='overdue')) }}
+</div>
+
+<div class="grid-main">
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('calendar', 17) }} Your next bookings</h3>
+      <a class="btn btn-ghost btn-sm" href="{{ url_for('bookings') }}">All my bookings</a></div>
+    {% if upcoming %}
+    <div class="table-wrap"><table class="table-ch">
+      <thead><tr><th>Reference</th><th>Facility</th><th>When</th><th>Status</th></tr></thead>
+      <tbody>{% for b in upcoming %}
+        <tr data-href="{{ url_for('booking_detail', booking_id=b.booking_id) }}">
+          <td><a class="ref" href="{{ url_for('booking_detail', booking_id=b.booking_id) }}">{{ b.booking_id|ref }}</a></td>
+          <td><span class="primary">{{ b.facility_name }}</span><span class="sub">{{ b.purpose or b.type_name }}</span></td>
+          <td class="nowrap">{{ b.booking_date|date('%a %d %b') }}<span class="sub">{{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.booking_date|rel_day }}</span></td>
+          <td>{{ b.status|badge }}</td>
+        </tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}
+      {% call m.empty('No upcoming bookings', 'Book a classroom, lab, hall or court and it will appear here.', 'calendar') %}
+        <a class="btn btn-brand btn-sm" href="{{ url_for('new_booking') }}">{{ icon('plus', 14) }} Book a facility</a>
+      {% endcall %}
+    {% endif %}
+  </section>
+
+  <div class="stack">
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('box', 17) }} Equipment you have</h3>
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('my_loans') }}">History</a></div>
+      {% if loans %}
+      <ul class="alert-list">{% for l in loans %}
+        {% set late = l.due_date|date('%Y-%m-%d') < today.isoformat() %}
+        <li><span class="a-icon {{ 'tone-danger' if late else 'tone-info' }}">{{ icon('clock' if late else 'box', 15) }}</span>
+          <div class="a-main"><div class="a-title">{{ l.equipment_name }}</div>
+            <div class="a-sub">{{ l.facility_name }} · due {{ l.due_date|date('%d %b') }} ({{ l.due_date|rel_day }}){{ ' · overdue' if late }}</div></div></li>
+      {% endfor %}</ul>
+      {% else %}{{ m.empty('Nothing on loan', 'Equipment issued to you by the lab staff appears here.', 'check-circle') }}{% endif %}
+    </section>
+    <section class="card-ch">
+      <div class="card-head"><h3>{{ icon('activity', 17) }} Quick actions</h3></div>
+      <div class="card-body-ch quick">
+        <a href="{{ url_for('new_booking') }}"><span class="q-icon">{{ icon('calendar-check', 17) }}</span>Book a facility</a>
+        <a href="{{ url_for('availability') }}"><span class="q-icon">{{ icon('clock', 17) }}</span>Check availability</a>
+        {% if current_user.role == 'FACULTY' %}
+        <a href="{{ url_for('report_fault') }}"><span class="q-icon">{{ icon('wrench', 17) }}</span>Report a fault</a>
+        {% else %}
+        <a href="{{ url_for('facilities') }}"><span class="q-icon">{{ icon('building', 17) }}</span>Browse facilities</a>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

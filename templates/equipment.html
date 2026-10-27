@@ -51,7 +51,7 @@
     </section>
 
 <div class="grid-2 mt-4">
-    <form class="card-ch" id="issue-form" method="post">
+    <form class="card-ch" id="issue-form" method="post">{{ csrf_field() }}
       <div class="card-head"><h3>{{ icon('box', 17) }} Issue equipment</h3><span class="sub"><code>sp_issue_equipment</code></span></div>
       <div class="card-body-ch">
         <div class="mb-3"><label class="form-label" for="equipment_id">Item</label>
@@ -73,7 +73,7 @@
       <ul class="alert-list">{% for o in overdue %}
         <li><span class="a-icon tone-danger">{{ icon('clock', 15) }}</span>
           <div class="a-main"><div class="a-title">{{ o.equipment_name }}</div><div class="a-sub">{{ o.issued_to }} · due {{ o.due_date|date('%d %b') }} · {{ o.due_date|rel_day }}</div></div>
-          <form method="post" action="{{ url_for('return_equipment', issue_id=o.issue_id) }}" class="inline-form" data-confirm="Record {{ o.equipment_name }} as returned by {{ o.issued_to }} today?" data-confirm-title="Return item" data-confirm-ok="Mark returned">
+          <form method="post" action="{{ url_for('return_equipment', issue_id=o.issue_id) }}" class="inline-form" data-confirm="Record {{ o.equipment_name }} as returned by {{ o.issued_to }} today?" data-confirm-title="Return item" data-confirm-ok="Mark returned">{{ csrf_field() }}
             <input type="hidden" name="next" value="{{ url_for('equipment') }}"><button class="btn btn-ghost btn-sm" type="submit">Return</button></form></li>
       {% endfor %}</ul>
       {% else %}{{ m.empty('Nothing overdue', 'Every issued item is within its due date.', 'check-circle') }}{% endif %}

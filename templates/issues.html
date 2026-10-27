@@ -36,7 +36,7 @@
         <td class="act">
           {% if i.status == 'ISSUED' %}
           <form method="post" action="{{ url_for('return_equipment', issue_id=i.issue_id) }}" class="inline-form"
-                data-confirm="Record {{ i.equipment_name }} as returned by {{ i.issued_to }} today? Trigger T3 will add the unit back to stock." data-confirm-title="Return item" data-confirm-ok="Mark returned">
+                data-confirm="Record {{ i.equipment_name }} as returned by {{ i.issued_to }} today? Trigger T3 will add the unit back to stock." data-confirm-title="Return item" data-confirm-ok="Mark returned">{{ csrf_field() }}
             <input type="hidden" name="next" value="{{ request.full_path }}">
             <button class="btn btn-soft btn-sm" type="submit">{{ icon('undo', 14) }} Return</button></form>
           {% endif %}

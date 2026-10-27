@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Report a fault{% endblock %}
+{% block crumbs %}{{ icon('chevron-right', 12) }} <span>Report a fault</span>{% endblock %}
+{% block content %}
+{% call m.page_head('Report a fault', 'Tell the facility\'s administrator what is broken. The report goes through the stored procedure sp_record_maintenance.') %}{% endcall %}
+
+<div class="grid-side">
+  <form class="card-ch" method="post">{{ csrf_field() }}
+    <div class="card-head"><h3>{{ icon('wrench', 17) }} Fault details</h3></div>
+    <div class="card-body-ch">
+      <div class="mb-3"><label class="form-label" for="facility_id">Facility</label>
+        <select class="form-select" id="facility_id" name="facility_id" required>
+          <option value="">Choose a facility…</option>
+          {% for f in facilities %}<option value="{{ f.facility_id }}" {{ 'selected' if preselect == f.facility_id }}>{{ f.facility_name }}{{ ' · already under maintenance' if f.status == 'UNDER_MAINTENANCE' }}</option>{% endfor %}
+        </select></div>
+      <div class="mb-3"><label class="form-label" for="description">What is wrong?</label>
+        <textarea class="form-control" id="description" name="description" rows="3" maxlength="200" required placeholder="e.g. Projector does not turn on"></textarea>
+        <div class="form-hint">Your name is added to the report automatically.</div></div>
+      <div class="note warning mb-3 small">{{ icon('alert', 15) }}<span>Reporting a fault marks the facility <b>UNDER_MAINTENANCE</b> (trigger T4), so nobody can book it until an administrator completes the request (trigger T5).</span></div>
+      <button class="btn btn-brand" type="submit">{{ icon('check', 16) }} Send report</button>
+    </div>
+  </form>
+  <section class="card-ch">
+    <div class="card-head"><h3>{{ icon('list', 17) }} Already reported</h3></div>
+    {% if open_requests %}
+    <ul class="alert-list">{% for r in open_requests[:8] %}
+      <li><span class="a-icon tone-warning">{{ icon('wrench', 15) }}</span>
+        <div class="a-main"><div class="a-title">{{ r.facility_name }}</div><div class="a-sub">{{ r.issue_description }} · {{ r.status|replace('_', ' ')|lower }}</div></div></li>
+    {% endfor %}</ul>
+    {% else %}{{ m.empty('No open faults', 'Every facility is in service.', 'check-circle') }}{% endif %}
+  </section>
+</div>
+{% endblock %}

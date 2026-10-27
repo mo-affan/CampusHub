@@ -47,7 +47,7 @@
 <details class="card-ch mt-4" id="add-student">
   <summary class="card-head" style="cursor:pointer; list-style:none"><h3>{{ icon('plus', 17) }} Add a student</h3>
     <span class="sub">UNIQUE registration no. and e-mail · CHECK e-mail format · department is a foreign key</span></summary>
-  <form class="card-body-ch" method="post">
+  <form class="card-body-ch" method="post">{{ csrf_field() }}
     <div class="row g-3">
       <div class="col-md-2"><label class="form-label" for="reg">Registration no.</label><input class="form-control" id="reg" name="registration_no" maxlength="15" required></div>
       <div class="col-md-3"><label class="form-label" for="sname">Name</label><input class="form-control" id="sname" name="name" maxlength="100" required></div>

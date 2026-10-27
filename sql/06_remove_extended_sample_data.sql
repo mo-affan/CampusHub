@@ -55,6 +55,16 @@ BEGIN
   DELETE FROM maintenance     WHERE facility_id  IN (SELECT id FROM tmp_rm_fac);
   DELETE FROM equipment       WHERE equipment_id IN (SELECT id FROM tmp_rm_eq);
   DELETE FROM facility        WHERE facility_id  IN (SELECT id FROM tmp_rm_fac);
+  -- logins of demo people (table exists only after 07_add_user_accounts.sql)
+  IF EXISTS (SELECT 1 FROM information_schema.TABLES
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_account') THEN
+    DELETE FROM user_account WHERE student_id IN (SELECT id FROM tmp_rm_stu);
+    DELETE FROM user_account WHERE faculty_id IN (SELECT id FROM tmp_rm_fcl);
+    DELETE FROM user_account WHERE admin_id IN (
+      SELECT admin_id FROM (SELECT ad.admin_id FROM admin ad WHERE ad.email LIKE '%@demo.campushub.edu'
+                              AND ad.admin_id NOT IN (SELECT admin_id FROM facility)
+                              AND ad.admin_id NOT IN (SELECT admin_id FROM maintenance)) AS demo_admins);
+  END IF;
   DELETE FROM student         WHERE student_id   IN (SELECT id FROM tmp_rm_stu);
   DELETE FROM faculty         WHERE faculty_id   IN (SELECT id FROM tmp_rm_fcl);
   DELETE FROM admin WHERE email LIKE '%@demo.campushub.edu'

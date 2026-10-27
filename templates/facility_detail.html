@@ -9,15 +9,19 @@
     <p>{{ f.type_name }} · {{ f.building }} · capacity {{ f.capacity }} · managed by {{ f.admin_name }}</p>
   </div>
   <div class="actions">
+    {% if is_admin %}
     {% if f.status == 'AVAILABLE' %}
     <form method="post" action="{{ url_for('facility_status', facility_id=f.facility_id) }}" class="inline-form"
-          data-confirm="Deactivating hides {{ f.facility_name }} from bookings. Existing bookings are kept." data-confirm-title="Deactivate facility?" data-confirm-ok="Deactivate" data-confirm-tone="danger">
+          data-confirm="Deactivating hides {{ f.facility_name }} from bookings. Existing bookings are kept." data-confirm-title="Deactivate facility?" data-confirm-ok="Deactivate" data-confirm-tone="danger">{{ csrf_field() }}
       <input type="hidden" name="active" value="0"><button class="btn btn-ghost" type="submit">{{ icon('power', 15) }} Deactivate</button></form>
     {% elif f.status == 'INACTIVE' %}
-    <form method="post" action="{{ url_for('facility_status', facility_id=f.facility_id) }}" class="inline-form">
+    <form method="post" action="{{ url_for('facility_status', facility_id=f.facility_id) }}" class="inline-form">{{ csrf_field() }}
       <input type="hidden" name="active" value="1"><button class="btn btn-ghost" type="submit">{{ icon('power', 15) }} Reactivate</button></form>
     {% endif %}
     <a class="btn btn-ghost" href="{{ url_for('maintenance', report=f.facility_id) }}#report-form">{{ icon('wrench', 15) }} Report a fault</a>
+    {% elif current_user.role == 'FACULTY' %}
+    <a class="btn btn-ghost" href="{{ url_for('report_fault', facility=f.facility_id) }}">{{ icon('wrench', 15) }} Report a fault</a>
+    {% endif %}
     <a class="btn btn-brand" href="{{ url_for('new_booking', facility_id=f.facility_id) }}">{{ icon('calendar-check', 15) }} Book this facility</a>
   </div>
 </div>
@@ -51,8 +55,10 @@
              href="{{ url_for('new_booking', facility_id=f.facility_id, date=row.date.isoformat(), start='%02d:00'|format(h), end='%02d:00'|format(h + 1)) }}">+ {{ '%02d'|format(h) }}:00</a>{% endfor %}
         {% else %}<span class="tl-closed-note">{{ f.status|replace('_', ' ')|title }}</span>{% endif %}
         {% for b in row['items'] %}
-          <a class="tl-block st-{{ b.status }}" style="left: {{ b.left }}%; width: {{ b.width }}%" href="{{ url_for('booking_detail', booking_id=b.booking_id) }}"
-             title="{{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.purpose }} · {{ b.booked_by }}"><b>{{ b.purpose or 'Booking' }}</b><span>{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></a>
+          {% if b.hidden %}<span class="tl-block st-{{ b.status }}" style="left: {{ b.left }}%; width: {{ b.width }}%"
+             title="{{ b.start_time|hm }}–{{ b.end_time|hm }} · booked"><b>Booked</b><span>{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></span>
+          {% else %}<a class="tl-block st-{{ b.status }}" style="left: {{ b.left }}%; width: {{ b.width }}%" href="{{ url_for('booking_detail', booking_id=b.booking_id) }}"
+             title="{{ b.start_time|hm }}–{{ b.end_time|hm }} · {{ b.purpose }} · {{ b.booked_by }}"><b>{{ b.purpose or 'Booking' }}</b><span>{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></a>{% endif %}
         {% endfor %}
       </div>
     </div>
@@ -63,7 +69,7 @@
 <div class="grid-2 mb-4">
   <section class="card-ch">
     <div class="card-head"><h3>{{ icon('box', 17) }} Equipment kept here</h3>
-      <a class="btn btn-ghost btn-sm" href="{{ url_for('equipment', facility=f.facility_id) }}">Inventory</a></div>
+      {% if is_admin %}<a class="btn btn-ghost btn-sm" href="{{ url_for('equipment', facility=f.facility_id) }}">Inventory</a>{% endif %}</div>
     {% if equipment %}
     <table class="table-ch compact">
       <thead><tr><th>Item</th><th>Stock</th><th></th></tr></thead>
@@ -80,10 +86,10 @@
     {% if upcoming %}
     <table class="table-ch compact">
       <tbody>{% for b in upcoming %}
-        <tr data-href="{{ url_for('booking_detail', booking_id=b.booking_id) }}">
+        <tr{% if not b.hidden %} data-href="{{ url_for('booking_detail', booking_id=b.booking_id) }}"{% endif %}>
           <td class="nowrap"><b>{{ b.booking_date|date('%a %d %b') }}</b><span class="sub">{{ b.start_time|hm }}–{{ b.end_time|hm }}</span></td>
-          <td>{{ b.purpose }}<span class="sub">{{ b.booked_by }}</span></td>
-          <td class="act"><span class="ref">{{ b.booking_id|ref }}</span></td>
+          <td>{{ b.purpose }}{% if not b.hidden %}<span class="sub">{{ b.booked_by }}</span>{% endif %}</td>
+          <td class="act">{% if not b.hidden %}<span class="ref">{{ b.booking_id|ref }}</span>{% endif %}</td>
         </tr>
       {% endfor %}</tbody>
     </table>

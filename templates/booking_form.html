@@ -3,12 +3,12 @@
 {% block title %}New booking{% endblock %}
 {% block crumbs %}{{ icon('chevron-right', 12) }} <a href="{{ url_for('bookings') }}">Bookings</a> {{ icon('chevron-right', 12) }} <span>New</span>{% endblock %}
 {% block content %}
-{% call m.page_head('Book a facility', 'Pick a facility, a person and a time. The schedule on the right updates as you type.') %}
+{% call m.page_head('Book a facility', ('Pick a facility, a person and a time.' if is_admin else 'Pick a facility and a time.') ~ ' The schedule on the right updates as you type.') %}
   <a class="btn btn-ghost" href="{{ url_for('availability') }}">{{ icon('clock', 16) }} Find a free slot</a>
 {% endcall %}
 
 <div class="grid-side">
-  <form class="card-ch" id="booking-form" method="post">
+  <form class="card-ch" id="booking-form" method="post">{{ csrf_field() }}
     <div class="card-head"><h3>{{ icon('calendar-check', 17) }} Booking details</h3><span class="sub">calls <code>sp_create_booking</code></span></div>
     <div class="card-body-ch">
       <div class="mb-3">
@@ -23,11 +23,12 @@
           </optgroup>
           {% endfor %}
         </select>
-        <div class="form-hint">Facilities under maintenance are listed so you can see MySQL refuse them.</div>
+        <div class="form-hint">{{ 'Facilities under maintenance are listed so you can see MySQL refuse them.' if is_admin else 'Facilities marked under maintenance or inactive cannot be booked.' }}</div>
       </div>
       <div class="mb-3">
         <label class="form-label d-block">Booked by</label>
-        {{ m.person_picker(students, faculty, 'bk') }}
+        {% if is_admin %}{{ m.person_picker(students, faculty, 'bk') }}
+        {% else %}<div class="booking-as">{{ icon('user', 16) }} <b>{{ current_user.name }}</b> <span class="muted">· {{ role_label|lower }} {{ current_user.person_code or '' }}</span></div>{% endif %}
       </div>
       <div class="row g-3 mb-3">
         <div class="col-sm-5"><label class="form-label" for="date">Date</label>
